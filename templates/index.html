@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Intelligent Interview Analyzer - AI Proctoring & Integrity Verification{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <!-- Hero Section -->
+  <div class="row align-items-center g-5 py-4">
+    <div class="col-lg-7">
+      <div class="d-inline-flex align-items-center gap-2 px-3 py-1 mb-3 rounded-pill" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3);">
+        <i class="fa-solid fa-bolt text-warning"></i>
+        <span class="small fw-semibold text-primary-emphasis">Next-Gen Real-Time Computer Vision Proctoring</span>
+      </div>
+      <h1 class="display-4 fw-bold lh-sm mb-3">
+        Intelligent Candidate Monitoring with <span class="brand-title">Zero Compromise</span>
+      </h1>
+      <p class="lead text-secondary mb-4">
+        Conduct secure online interviews with live face detection, registered deep facial biometrics, 
+        real-time head-pose estimation, observable lip movement tracking, and automated 5-second identity mismatch termination.
+      </p>
+
+      <div class="d-flex flex-wrap gap-3">
+        <a href="{{ url_for('auth.register') }}" class="btn btn-primary-gradient btn-lg px-4">
+          <i class="fa-solid fa-camera me-2"></i> Register Candidate with Webcam
+        </a>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline-light btn-lg px-4">
+          <i class="fa-solid fa-arrow-right-to-bracket me-2"></i> Candidate Login
+        </a>
+      </div>
+
+      <div class="mt-4 pt-3 d-flex align-items-center gap-4 text-secondary small">
+        <div><i class="fa-solid fa-check-circle text-success me-1"></i> Real Webcam Input</div>
+        <div><i class="fa-solid fa-check-circle text-success me-1"></i> 5s Mismatch Auto-Termination</div>
+        <div><i class="fa-solid fa-check-circle text-success me-1"></i> No Dummy Data</div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="custom-card p-4 position-relative">
+        <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2 border-secondary border-opacity-25">
+          <div class="d-flex align-items-center gap-2">
+            <span class="spinner-grow spinner-grow-sm text-success" role="status"></span>
+            <span class="fw-semibold small">Live Proctor Engine</span>
+          </div>
+          <span class="badge bg-primary">v2.4 Active</span>
+        </div>
+
+        <div class="p-3 rounded-3 mb-3" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border);">
+          <div class="d-flex justify-content-between small text-secondary mb-1">
+            <span>Identity Verification</span>
+            <span class="text-success fw-bold"><i class="fa-solid fa-check me-1"></i> SFace Verified</span>
+          </div>
+          <div class="progress" style="height: 6px;">
+            <div class="progress-bar bg-success" style="width: 95%;"></div>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-3 mb-3" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border);">
+          <div class="d-flex justify-content-between small text-secondary mb-1">
+            <span>3D Head Orientation (Yaw/Pitch)</span>
+            <span class="text-info fw-bold"><i class="fa-solid fa-arrows-to-eye me-1"></i> Normal (Yaw: 1.4°)</span>
+          </div>
+          <div class="progress" style="height: 6px;">
+            <div class="progress-bar bg-info" style="width: 88%;"></div>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-3 mb-3" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border);">
+          <div class="d-flex justify-content-between small text-secondary mb-1">
+            <span>Observable Lip Activity (MAR)</span>
+            <span class="text-primary-emphasis fw-bold"><i class="fa-solid fa-waveform me-1"></i> MAR: 0.22 (Speaking)</span>
+          </div>
+          <div class="progress" style="height: 6px;">
+            <div class="progress-bar bg-primary" style="width: 72%;"></div>
+          </div>
+        </div>
+
+        <div class="p-3 rounded-3 bg-danger bg-opacity-10 border border-danger border-opacity-25">
+          <div class="d-flex align-items-center gap-2 text-danger small">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span><strong>5-Sec Safeguard:</strong> Unrecognized faces automatically end session.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 Pillars Section -->
+  <div class="py-5">
+    <div class="text-center mb-5">
+      <h2 class="fw-bold">Comprehensive Interview Integrity Core</h2>
+      <p class="text-secondary">Engineered to eliminate impersonation and suspicious behaviors during remote evaluations.</p>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-md-6 col-lg-3">
+        <div class="feature-box h-100">
+          <div class="feature-icon"><i class="fa-solid fa-id-card-clip"></i></div>
+          <h5 class="fw-bold mb-2">Deep Biometric Match</h5>
+          <p class="text-secondary small mb-0">
+            Captures multi-angle facial embeddings during registration and performs continuous SFace 128-D cosine distance matching.
+          </p>
+        </div>
+      </div>
+
+      <div class="col-md-6 col-lg-3">
+        <div class="feature-box h-100">
+          <div class="feature-icon"><i class="fa-solid fa-head-side-virus"></i></div>
+          <h5 class="fw-bold mb-2">3D Head Pose SolvePnP</h5>
+          <p class="text-secondary small mb-0">
+            Estimates Pitch, Yaw, and Roll from facial geometry. Detects looking away, excessive turning, or camera misalignment.
+          </p>
+        </div>
+      </div>
+
+      <div class="col-md-6 col-lg-3">
+        <div class="feature-box h-100">
+          <div class="feature-icon"><i class="fa-solid fa-lips"></i></div>
+          <h5 class="fw-bold mb-2">Lip Movement & MAR</h5>
+          <p class="text-secondary small mb-0">
+            Calculates Mouth Aspect Ratio (MAR) and rolling variance to continuously monitor natural speaking vs. silent absence.
+          </p>
+        </div>
+      </div>
+
+      <div class="col-md-6 col-lg-3">
+        <div class="feature-box h-100">
+          <div class="feature-icon text-danger"><i class="fa-solid fa-user-xmark"></i></div>
+          <h5 class="fw-bold mb-2">5-Second Auto Termination</h5>
+          <p class="text-secondary small mb-0">
+            When an identity mismatch is detected, a strict 5-second grace window begins. If identity isn't restored, the backend terminates the session immediately.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+
+{% block title %}Live Interview - Intelligent Interview Analyzer{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* HUD overlay styles */
+  .hud-badge {
+    background: rgba(11, 19, 43, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .hud-badge-green { border-color: #10b981; color: #34d399; }
+  .hud-badge-yellow { border-color: #f59e0b; color: #fbbf24; }
+  .hud-badge-red { border-color: #ef4444; color: #f87171; }
+
+  /* Bounding box guide overlay */
+  .face-guide-box {
+    position: absolute;
+    width: 48%;
+    height: 64%;
+    border: 2px dashed rgba(255, 255, 255, 0.35);
+    border-radius: 50% 50% 45% 45%;
+    pointer-events: none;
+    transition: border-color 0.3s ease;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+
+  <!-- Prominent 5-Second Identity Mismatch Warning Banner (Hidden by default) -->
+  <div id="mismatchBanner" class="mismatch-banner p-3 mb-4 text-white d-none">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="countdown-number" id="countdownVal">5.0</div>
+        <div>
+          <h4 class="fw-bold mb-1"><i class="fa-solid fa-triangle-exclamation me-2"></i>Identity Mismatch Detected!</h4>
+          <p class="mb-0 text-white-50">
+            Unregistered face detected in camera. Please return to your registered position immediately.
+            The interview will automatically terminate when the timer reaches 0.
+          </p>
+        </div>
+      </div>
+      <div class="spinner-border text-light" role="status"></div>
+    </div>
+  </div>
+
+  <!-- General Warning Alert Box -->
+  <div id="generalAlertBox" class="alert alert-warning alert-dismissible fade show d-none align-items-center gap-2 mb-3" role="alert">
+    <i class="fa-solid fa-bell text-warning fs-5"></i>
+    <div id="generalAlertText" class="fw-semibold">Alert Message</div>
+  </div>
+
+  <!-- Top Status Bar: Candidate Info & Timers -->
+  <div class="custom-card p-3 mb-4">
+    <div class="row align-items-center gy-2">
+      <div class="col-md-3">
+        <div class="small text-secondary">Candidate</div>
+        <div class="fw-bold fs-6 text-white text-truncate">
+          <i class="fa-solid fa-user me-1 text-info"></i> {{ candidate_name }}
+          <span class="badge bg-secondary font-monospace ms-1">{{ candidate_id }}</span>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <div class="small text-secondary">Session ID & Status</div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="font-monospace text-primary-emphasis fw-bold">{{ interview.session_id }}</span>
+          <span id="interviewStatusPill" class="status-pill status-pill-green">
+            <i class="fa-solid fa-circle-dot me-1"></i> Active
+          </span>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <div class="small text-secondary">Interview Duration</div>
+        <div class="fw-bold fs-5 font-monospace text-white" id="sessionTimerDisplay">
+          00:00:00
+        </div>
+      </div>
+
+      <div class="col-md-3 text-md-end">
+        <div class="small text-secondary">Warnings Issued</div>
+        <div class="fw-bold fs-5 text-warning" id="warningCountDisplay">
+          <i class="fa-solid fa-triangle-exclamation me-1"></i> {{ interview.warning_count }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <!-- Left Column: Webcam Live Preview & Vision HUD -->
+    <div class="col-lg-5 col-xl-5">
+      <div class="custom-card p-3 h-100 d-flex flex-column">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="fw-bold mb-0 text-white"><i class="fa-solid fa-eye me-2 text-info"></i>Webcam Proctor Stream</h6>
+          <span id="fpsBadge" class="badge bg-dark border border-secondary text-secondary">2.0 FPS</span>
+        </div>
+
+        <!-- Video Viewport -->
+        <div class="webcam-container flex-grow-1" style="min-height: 320px;">
+          <video id="liveVideo" class="webcam-video" autoplay playsinline muted></video>
+          <canvas id="liveCanvas" class="d-none"></canvas>
+          <div class="face-guide-box" id="guideBox"></div>
+
+          <!-- Video Overlays -->
+          <div class="webcam-overlay">
+            <span class="webcam-badge" id="cameraOnlineBadge">
+              <i class="fa-solid fa-video text-success me-1"></i> Camera Active
+            </span>
+            <span class="webcam-badge text-info" id="simScoreBadge">
+              Similarity: --
+            </span>
+          </div>
+        </div>
+
+        <!-- Vision HUD Telemetry Indicators -->
+        <div class="mt-3 p-3 rounded-3" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border);">
+          <div class="row g-2">
+            <!-- 1. Face Recognition Status -->
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center p-2 rounded" style="background: rgba(0,0,0,0.25);">
+                <span class="small text-secondary fw-semibold">
+                  <i class="fa-solid fa-face-smile me-1"></i> Face Verification:
+                </span>
+                <span id="hudFaceStatus" class="status-pill status-pill-green">
+                  Identity Verified
+                </span>
+              </div>
+            </div>
+
+            <!-- 2. Head Pose Status -->
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center p-2 rounded" style="background: rgba(0,0,0,0.25);">
+                <div>
+                  <span class="small text-secondary fw-semibold">
+                    <i class="fa-solid fa-compass me-1"></i> Head Pose:
+                  </span>
+                  <div class="text-muted" style="font-size: 0.72rem;" id="hudEulerDisplay">
+                    Pitch: 0.0° | Yaw: 0.0° | Roll: 0.0°
+                  </div>
+                </div>
+                <span id="hudPoseStatus" class="status-pill status-pill-green">
+                  Normal Position
+                </span>
+              </div>
+            </div>
+
+            <!-- 3. Lip Movement Status -->
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center p-2 rounded" style="background: rgba(0,0,0,0.25);">
+                <div>
+                  <span class="small text-secondary fw-semibold">
+                    <i class="fa-solid fa-comment-dots me-1"></i> Lip Movement:
+                  </span>
+                  <div class="text-muted" style="font-size: 0.72rem;" id="hudMarDisplay">
+                    MAR: 0.00
+                  </div>
+                </div>
+                <span id="hudLipStatus" class="status-pill status-pill-green">
+                  Monitoring Active
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Interactive Interview Questions & Response Area -->
+    <div class="col-lg-7 col-xl-7">
+      <div class="custom-card p-4 h-100 d-flex flex-column">
+        <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2 border-secondary border-opacity-25">
+          <div>
+            <h5 class="fw-bold mb-0 text-white">Interview Questions</h5>
+            <span class="small text-secondary">Question <span id="currentQNum">1</span> of {{ questions|length }}</span>
+          </div>
+          <div class="d-flex gap-1" id="qPagination">
+            {% for q in questions %}
+              <button type="button" class="btn btn-sm {{ 'btn-primary' if loop.first else 'btn-outline-secondary' }} px-3 q-nav-btn" data-qid="{{ q.id }}" onclick="switchQuestion({{ loop.index0 }})">
+                {{ loop.index }}
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Question Body -->
+        <div class="p-3 rounded-3 mb-3" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border);">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25" id="questionCategory">
+              {{ questions[0].category if questions else 'General' }}
+            </span>
+            <span class="small text-muted"><i class="fa-regular fa-clock me-1"></i> Expected: ~2 mins</span>
+          </div>
+          <h5 class="fw-semibold text-white mb-0" id="questionText">
+            {{ questions[0].question_text if questions else 'No questions available.' }}
+          </h5>
+        </div>
+
+        <!-- Candidate Response Input -->
+        <div class="flex-grow-1 mb-3">
+          <label class="form-label small fw-semibold text-secondary">Your Technical / Behavioral Response:</label>
+          <textarea class="form-control h-100" id="answerInput" rows="7" placeholder="Type your answer clearly here. Speak naturally towards the webcam while responding..."></textarea>
+        </div>
+
+        <!-- Action Footer -->
+        <div class="d-flex justify-content-between align-items-center pt-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="prevBtn" onclick="prevQuestion()" disabled>
+            <i class="fa-solid fa-arrow-left me-1"></i> Previous
+          </button>
+          
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary-gradient px-4" id="saveNextBtn" onclick="saveAndNext()">
+              <i class="fa-solid fa-floppy-disk me-1"></i> Save Answer & Next
+            </button>
+            <button type="button" class="btn btn-success px-4" id="finishBtn" onclick="finishInterview()">
+              <i class="fa-solid fa-circle-check me-1"></i> Complete Interview
+            </button>
+          </div>
+        </div>
+        <div id="answerSaveStatus" class="small text-end mt-1 text-muted"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const SESSION_ID = "{{ interview.session_id }}";
+  const PROCESS_FRAME_URL = "{{ url_for('interview.process_frame') }}";
+  const SUBMIT_ANSWER_URL = "{{ url_for('interview.submit_answer') }}";
+  const FINISH_URL = "{{ url_for('interview.finish') }}";
+  const TERMINATED_URL = "{{ url_for('interview.terminated', session_id=interview.session_id) }}";
+
+  const questionsData = {{ questions|tojson }};
+  const answeredQids = new Set({{ answered_qids|tojson }});
+  let currentQIndex = 0;
+
+  // Session duration timer
+  const startTime = Date.now();
+  setInterval(() => {
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, '0');
+    const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, '0');
+    const secs = String(elapsedSec % 60).padStart(2, '0');
+    document.getElementById('sessionTimerDisplay').innerText = `${hrs}:${mins}:${secs}`;
+  }, 1000);
+
+  // Webcam stream & monitor loop
+  let webcamStream = null;
+  let monitorInterval = null;
+  let isSendingFrame = false;
+
+  async function initWebcam() {
+    const video = document.getElementById('liveVideo');
+    const onlineBadge = document.getElementById('cameraOnlineBadge');
+    try {
+      webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = webcamStream;
+      onlineBadge.innerHTML = '<i class="fa-solid fa-video text-success me-1"></i> Camera Active';
+      onlineBadge.className = "webcam-badge text-success";
+
+      // Start periodic frame monitoring (every 500ms)
+      monitorInterval = setInterval(captureAndSendFrame, 500);
+    } catch (err) {
+      console.error("Webcam init error:", err);
+      onlineBadge.innerHTML = '<i class="fa-solid fa-video-slash text-danger me-1"></i> Camera Disconnected';
+      onlineBadge.className = "webcam-badge text-danger";
+      showGeneralAlert("Camera error: " + err.message + ". Please reconnect webcam immediately.", "danger");
+    }
+  }
+
+  async function captureAndSendFrame() {
+    if (isSendingFrame) return;
+    const video = document.getElementById('liveVideo');
+    const canvas = document.getElementById('liveCanvas');
+    if (!video.videoWidth) return;
+
+    isSendingFrame = true;
+    canvas.width = 360; // downscale for ultra-responsive low-latency transmission
+    canvas.height = 270;
+    const ctx = canvas.getContext('2d');
+    // Mirror horizontally
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const base64Data = canvas.toDataURL('image/jpeg', 0.80);
+
+    try {
+      const resp = await fetch(PROCESS_FRAME_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: SESSION_ID,
+          frame: base64Data
+        })
+      });
+
+      const data = await resp.json();
+      handleMonitorResult(data);
+    } catch (err) {
+      console.warn("Frame monitor request error:", err);
+    } finally {
+      isSendingFrame = false;
+    }
+  }
+
+  function handleMonitorResult(data) {
+    if (!data) return;
+
+    // Check if session was terminated by backend
+    if (data.is_terminated || data.status === 'terminated') {
+      clearInterval(monitorInterval);
+      if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+      window.location.href = data.redirect_url || TERMINATED_URL;
+      return;
+    }
+
+    // 1. Update Warnings & Counts
+    if (data.warning_count !== undefined) {
+      document.getElementById('warningCountDisplay').innerHTML = `<i class="fa-solid fa-triangle-exclamation me-1"></i> ${data.warning_count}`;
+    }
+
+    // 2. Face Recognition Status Pill
+    const facePill = document.getElementById('hudFaceStatus');
+    const guideBox = document.getElementById('guideBox');
+    const simBadge = document.getElementById('simScoreBadge');
+
+    simBadge.innerText = `Similarity: ${data.similarity_score !== undefined ? data.similarity_score : '--'}`;
+    facePill.innerText = data.face_status || "Identity Verified";
+
+    if (data.status_color === 'green') {
+      facePill.className = "status-pill status-pill-green";
+      guideBox.style.borderColor = "rgba(16, 185, 129, 0.75)";
+    } else if (data.status_color === 'yellow') {
+      facePill.className = "status-pill status-pill-yellow";
+      guideBox.style.borderColor = "rgba(245, 158, 11, 0.85)";
+    } else {
+      facePill.className = "status-pill status-pill-red";
+      guideBox.style.borderColor = "rgba(239, 68, 68, 0.95)";
+    }
+
+    // 3. 5-Second Identity Mismatch Countdown Handling
+    const mismatchBanner = document.getElementById('mismatchBanner');
+    const countdownVal = document.getElementById('countdownVal');
+
+    if (data.mismatch_countdown !== null && data.mismatch_countdown !== undefined) {
+      mismatchBanner.classList.remove('d-none');
+      countdownVal.innerText = `${data.mismatch_countdown}s`;
+    } else {
+      mismatchBanner.classList.add('d-none');
+    }
+
+    // 4. Head Pose Status & Angles
+    if (data.head_pose) {
+      const posePill = document.getElementById('hudPoseStatus');
+      const eulerDisplay = document.getElementById('hudEulerDisplay');
+      posePill.innerText = data.head_pose.status;
+      eulerDisplay.innerText = `Pitch: ${data.head_pose.pitch}° | Yaw: ${data.head_pose.yaw}° | Roll: ${data.head_pose.roll}°`;
+
+      if (data.head_pose.is_warning) {
+        posePill.className = "status-pill status-pill-yellow";
+      } else {
+        posePill.className = "status-pill status-pill-green";
+      }
+    }
+
+    // 5. Lip Movement Status
+    if (data.lip_movement) {
+      const lipPill = document.getElementById('hudLipStatus');
+      const marDisplay = document.getElementById('hudMarDisplay');
+      lipPill.innerText = data.lip_movement.status;
+      marDisplay.innerText = `MAR: ${data.lip_movement.mar} ${data.lip_movement.is_speaking ? '(Speaking)' : ''}`;
+
+      if (data.lip_movement.status === "Mouth Movement Detected") {
+        lipPill.className = "status-pill status-pill-green";
+      } else if (data.lip_movement.status === "Mouth Closed") {
+        lipPill.className = "status-pill status-pill-yellow";
+      } else {
+        lipPill.className = "status-pill status-pill-green";
+      }
+    }
+
+    // 6. Active Warnings Alert Box
+    if (data.active_warnings && data.active_warnings.length > 0) {
+      showGeneralAlert(data.active_warnings[0], data.status_color === 'red' ? 'danger' : 'warning');
+    } else {
+      hideGeneralAlert();
+    }
+  }
+
+  function showGeneralAlert(msg, type='warning') {
+    const box = document.getElementById('generalAlertBox');
+    const txt = document.getElementById('generalAlertText');
+    box.className = `alert alert-${type} alert-dismissible fade show d-flex align-items-center gap-2 mb-3`;
+    txt.innerText = msg;
+    box.classList.remove('d-none');
+  }
+
+  function hideGeneralAlert() {
+    const box = document.getElementById('generalAlertBox');
+    box.classList.add('d-none');
+  }
+
+  // Interview Questions Logic
+  function updateQuestionUI() {
+    if (!questionsData || questionsData.length === 0) return;
+    const q = questionsData[currentQIndex];
+    document.getElementById('currentQNum').innerText = currentQIndex + 1;
+    document.getElementById('questionCategory').innerText = q.category || 'General';
+    document.getElementById('questionText').innerText = q.question_text;
+    document.getElementById('answerInput').value = ""; // fresh response
+
+    // Update pagination buttons
+    document.querySelectorAll('.q-nav-btn').forEach((btn, idx) => {
+      btn.className = (idx === currentQIndex) ? 'btn btn-sm btn-primary px-3 q-nav-btn' : 'btn btn-sm btn-outline-secondary px-3 q-nav-btn';
+    });
+
+    document.getElementById('prevBtn').disabled = (currentQIndex === 0);
+  }
+
+  function switchQuestion(idx) {
+    if (idx >= 0 && idx < questionsData.length) {
+      currentQIndex = idx;
+      updateQuestionUI();
+    }
+  }
+
+  function prevQuestion() {
+    if (currentQIndex > 0) {
+      currentQIndex--;
+      updateQuestionUI();
+    }
+  }
+
+  async function saveAndNext() {
+    const q = questionsData[currentQIndex];
+    const answer = document.getElementById('answerInput').value.trim();
+    const statusDiv = document.getElementById('answerSaveStatus');
+
+    if (!answer) {
+      alert("Please enter a response before saving.");
+      return;
+    }
+
+    statusDiv.innerHTML = '<span class="text-info"><i class="fa-solid fa-spinner fa-spin me-1"></i> Saving answer...</span>';
+
+    try {
+      const resp = await fetch(SUBMIT_ANSWER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: SESSION_ID,
+          question_id: q.id,
+          answer_text: answer
+        })
+      });
+      const res = await resp.json();
+      if (res.terminated) {
+        window.location.href = TERMINATED_URL;
+        return;
+      }
+      if (res.success) {
+        statusDiv.innerHTML = '<span class="text-success"><i class="fa-solid fa-check me-1"></i> Answer recorded!</span>';
+        answeredQids.add(q.id);
+        if (currentQIndex < questionsData.length - 1) {
+          currentQIndex++;
+          updateQuestionUI();
+        }
+      } else {
+        statusDiv.innerHTML = `<span class="text-danger">${res.message}</span>`;
+      }
+    } catch (err) {
+      statusDiv.innerHTML = `<span class="text-danger">Failed to save: ${err.message}</span>`;
+    }
+  }
+
+  async function finishInterview() {
+    if (!confirm("Are you ready to submit your entire interview? This will finalize your responses.")) return;
+    try {
+      const resp = await fetch(FINISH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: SESSION_ID })
+      });
+      const res = await resp.json();
+      if (res.success) {
+        if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+        window.location.href = res.redirect_url;
+      } else {
+        alert(res.message);
+      }
+    } catch (err) {
+      alert("Submission error: " + err.message);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', initWebcam);
+  window.addEventListener('beforeunload', () => {
+    if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+    if (monitorInterval) clearInterval(monitorInterval);
+  });
+</script>
+{% endblock %}

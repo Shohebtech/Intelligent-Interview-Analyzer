@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Administrator Portal - Intelligent Interview Analyzer{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+      <div class="custom-card p-4 p-md-5">
+        <div class="text-center mb-4">
+          <div class="feature-icon mx-auto mb-3 text-warning" style="width: 60px; height: 60px; font-size: 1.6rem; background: rgba(245, 158, 11, 0.15);">
+            <i class="fa-solid fa-user-shield"></i>
+          </div>
+          {% if not has_admin %}
+            <h3 class="fw-bold mb-1">Create Admin Account</h3>
+            <p class="text-secondary small">Initialize the first administrator account (no default credentials)</p>
+          {% else %}
+            <h3 class="fw-bold mb-1">Administrator Login</h3>
+            <p class="text-secondary small">Access proctoring audit console</p>
+          {% endif %}
+        </div>
+
+        {% if not has_admin %}
+          <!-- Initial Admin Creation Form -->
+          <form method="POST" action="{{ url_for('auth.admin_login') }}">
+            <input type="hidden" name="action" value="register">
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Admin Username <span class="text-danger">*</span></label>
+              <input type="text" name="username" class="form-control" placeholder="e.g. admin_proctor" required autofocus>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
+              <input type="email" name="email" class="form-control" placeholder="admin@organization.com" required>
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label small fw-semibold">Admin Password <span class="text-danger">*</span></label>
+              <input type="password" name="password" class="form-control" placeholder="Create strong admin password" minlength="6" required>
+            </div>
+
+            <button type="submit" class="btn btn-warning w-100 py-2 fw-bold text-dark">
+              <i class="fa-solid fa-shield me-2"></i> Initialize Administrator
+            </button>
+          </form>
+        {% else %}
+          <!-- Standard Admin Login Form -->
+          <form method="POST" action="{{ url_for('auth.admin_login') }}">
+            <input type="hidden" name="action" value="login">
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Admin Username or Email</label>
+              <input type="text" name="username" class="form-control" placeholder="Enter username or email" required autofocus>
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label small fw-semibold">Password</label>
+              <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+            </div>
+
+            <button type="submit" class="btn btn-warning w-100 py-2 fw-bold text-dark">
+              <i class="fa-solid fa-right-to-bracket me-2"></i> Sign In to Admin Console
+            </button>
+          </form>
+        {% endif %}
+
+        <div class="mt-4 pt-3 text-center border-top border-secondary border-opacity-25 small">
+          <a href="{{ url_for('auth.login') }}" class="text-secondary"><i class="fa-solid fa-arrow-left me-1"></i> Return to Candidate Login</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

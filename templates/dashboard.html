@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Candidate Dashboard - Intelligent Interview Analyzer{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row g-4">
+    <!-- Profile Card & Interview Launch -->
+    <div class="col-lg-4">
+      <div class="custom-card p-4 mb-4">
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <div class="feature-icon mb-0" style="width: 56px; height: 56px; font-size: 1.5rem;">
+            <i class="fa-solid fa-user-astronaut"></i>
+          </div>
+          <div>
+            <h5 class="fw-bold mb-0">{{ profile.full_name }}</h5>
+            <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25">
+              {{ profile.candidate_id }}
+            </span>
+          </div>
+        </div>
+
+        <div class="list-group list-group-flush small mb-4">
+          <div class="list-group-item bg-transparent text-secondary d-flex justify-content-between px-0 border-secondary border-opacity-25">
+            <span>Email</span>
+            <span class="text-white">{{ profile.email }}</span>
+          </div>
+          <div class="list-group-item bg-transparent text-secondary d-flex justify-content-between px-0 border-secondary border-opacity-25">
+            <span>Face Biometrics</span>
+            <span class="text-success fw-semibold">
+              <i class="fa-solid fa-check-circle me-1"></i> {{ embedding_count }} Angle(s) Enrolled
+            </span>
+          </div>
+          <div class="list-group-item bg-transparent text-secondary d-flex justify-content-between px-0 border-secondary border-opacity-25">
+            <span>Registration Date</span>
+            <span class="text-white">{{ profile.created_at[:10] if profile.created_at else 'Active' }}</span>
+          </div>
+        </div>
+
+        {% if active_interview %}
+          <div class="p-3 rounded-3 bg-warning bg-opacity-10 border border-warning border-opacity-25 mb-3 text-warning small">
+            <i class="fa-solid fa-triangle-exclamation me-1"></i> You have an active interview session in progress.
+          </div>
+          <a href="{{ url_for('interview.session_view', session_id=active_interview.session_id) }}" class="btn btn-warning w-100 fw-bold py-2">
+            <i class="fa-solid fa-play me-2"></i> Resume Interview Session
+          </a>
+        {% else %}
+          <a href="{{ url_for('interview.start') }}" class="btn btn-primary-gradient w-100 fw-bold py-3 fs-5">
+            <i class="fa-solid fa-video me-2"></i> Start New Interview
+          </a>
+        {% endif %}
+      </div>
+
+      <!-- Guidelines Card -->
+      <div class="custom-card p-4">
+        <h6 class="fw-bold text-info mb-3"><i class="fa-solid fa-list-check me-2"></i>Interview Proctor Rules</h6>
+        <ul class="small text-secondary ps-3 mb-0 d-flex flex-column gap-2">
+          <li><strong>Keep Face Centered:</strong> Your face must remain visible within the camera view at all times.</li>
+          <li><strong>No Multiple Persons:</strong> Only the registered candidate is permitted in frame.</li>
+          <li><strong>5-Second Safeguard:</strong> If identity mismatch occurs, you have 5 seconds to return before session auto-terminates.</li>
+          <li><strong>Face Camera Directly:</strong> Excessive head rotation or tilting triggers security warnings.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Interview History -->
+    <div class="col-lg-8">
+      <div class="custom-card p-4 h-100">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h4 class="fw-bold mb-0"><i class="fa-solid fa-clock-rotate-left me-2 text-primary-emphasis"></i>Interview History</h4>
+          <span class="badge bg-secondary">{{ interviews|length }} Session(s)</span>
+        </div>
+
+        {% if interviews %}
+          <div class="table-responsive">
+            <table class="table table-dark table-hover align-middle mb-0">
+              <thead class="text-secondary small">
+                <tr>
+                  <th>Session ID</th>
+                  <th>Start Time</th>
+                  <th>Status</th>
+                  <th>Warnings</th>
+                  <th>Outcome / Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for itv in interviews %}
+                  <tr>
+                    <td class="fw-bold text-info font-monospace">{{ itv.session_id }}</td>
+                    <td class="small">{{ itv.start_time }}</td>
+                    <td>
+                      {% if itv.status == 'completed' %}
+                        <span class="status-pill status-pill-green"><i class="fa-solid fa-check me-1"></i> Completed</span>
+                      {% elif itv.status == 'terminated' %}
+                        <span class="status-pill status-pill-red"><i class="fa-solid fa-ban me-1"></i> Terminated</span>
+                      {% else %}
+                        <span class="status-pill status-pill-yellow"><i class="fa-solid fa-spinner fa-spin me-1"></i> In Progress</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <span class="badge bg-dark border border-secondary text-white">{{ itv.warning_count }}</span>
+                    </td>
+                    <td class="small text-secondary">
+                      {% if itv.termination_reason %}
+                        <span class="text-danger fw-semibold">{{ itv.termination_reason }}</span>
+                      {% elif itv.final_notes %}
+                        <span>{{ itv.final_notes }}</span>
+                      {% else %}
+                        <span>-</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-center py-5 text-secondary">
+            <i class="fa-solid fa-clipboard-question fs-1 mb-3 text-muted"></i>
+            <p>No interview sessions recorded yet.</p>
+            <a href="{{ url_for('interview.start') }}" class="btn btn-outline-info btn-sm">Start Your First Interview</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
