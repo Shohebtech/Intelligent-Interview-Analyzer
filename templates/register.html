@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}Candidate Registration - Intelligent Interview Analyzer{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-xl-11">
+      <div class="custom-card p-4 p-md-5">
+        <div class="text-center mb-4">
+          <h2 class="fw-bold mb-2">Candidate Biometric Registration</h2>
+          <p class="text-secondary">
+            Register your profile and capture multi-angle facial embeddings via your webcam to enable real-time interview verification.
+          </p>
+        </div>
+
+        <form id="registrationForm" onsubmit="handleRegistrationSubmit(event)">
+          <div class="row g-4">
+            <!-- Left Column: Profile Information -->
+            <div class="col-lg-5">
+              <div class="p-4 rounded-3 h-100" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
+                <h5 class="fw-bold mb-3 text-info"><i class="fa-solid fa-user-pen me-2"></i>Profile Credentials</h5>
+                
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Full Name <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="fullName" placeholder="e.g. Sarah Jenkins" required>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Candidate ID <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="candidateId" placeholder="e.g. CAND-8921" required>
+                  <div class="form-text text-muted small">Unique ID for your interview credentials.</div>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
+                  <input type="email" class="form-control" id="email" placeholder="sarah.jenkins@example.com" required>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Password <span class="text-danger">*</span></label>
+                  <input type="password" class="form-control" id="password" placeholder="At least 6 characters" minlength="6" required>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Confirm Password <span class="text-danger">*</span></label>
+                  <input type="password" class="form-control" id="confirmPassword" placeholder="Re-enter password" minlength="6" required>
+                </div>
+
+                <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                  <i class="fa-solid fa-shield-cat"></i>
+                  <span>Biometric embeddings are encrypted and never leave this secure local instance.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column: Interactive Face Capture Wizard -->
+            <div class="col-lg-7">
+              <div class="p-4 rounded-3 h-100" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h5 class="fw-bold mb-0 text-primary-emphasis"><i class="fa-solid fa-camera me-2"></i>Webcam Face Enrollment</h5>
+                  <span id="cameraStatusBadge" class="badge bg-secondary">Camera Offline</span>
+                </div>
+
+                <!-- Webcam Video Viewport -->
+                <div class="webcam-container mb-3" style="min-height: 280px;">
+                  <video id="regVideo" class="webcam-video" autoplay playsinline muted></video>
+                  <canvas id="regCanvas" class="d-none"></canvas>
+
+                  <div class="webcam-overlay">
+                    <span class="webcam-badge"><i class="fa-solid fa-circle text-danger me-1"></i> Live Webcam</span>
+                    <span id="guideText" class="webcam-badge bg-primary text-white">Look directly at camera</span>
+                  </div>
+                </div>
+
+                <!-- Angle Capture Step Controls -->
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                  <button type="button" class="btn btn-outline-info btn-sm flex-grow-1" id="btnCapFrontal" onclick="captureAngle('frontal', 'Frontal View')">
+                    <i class="fa-solid fa-user me-1"></i> Capture Frontal
+                  </button>
+                  <button type="button" class="btn btn-outline-info btn-sm flex-grow-1" id="btnCapLeft" onclick="captureAngle('left', 'Slight Left')">
+                    <i class="fa-solid fa-arrow-left me-1"></i> Capture Left Angle
+                  </button>
+                  <button type="button" class="btn btn-outline-info btn-sm flex-grow-1" id="btnCapRight" onclick="captureAngle('right', 'Slight Right')">
+                    <i class="fa-solid fa-arrow-right me-1"></i> Capture Right Angle
+                  </button>
+                </div>
+
+                <!-- Captured Thumbnails Preview -->
+                <div class="row g-2 mb-3 text-center">
+                  <div class="col-4">
+                    <div class="p-2 rounded border border-secondary border-opacity-50" style="background: rgba(0,0,0,0.3);">
+                      <div class="small fw-semibold mb-1 text-secondary">Frontal</div>
+                      <div id="thumbFrontal" class="rounded overflow-hidden bg-dark d-flex align-items-center justify-content-center" style="height: 70px;">
+                        <span class="text-muted small">Pending</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-4">
+                    <div class="p-2 rounded border border-secondary border-opacity-50" style="background: rgba(0,0,0,0.3);">
+                      <div class="small fw-semibold mb-1 text-secondary">Slight Left</div>
+                      <div id="thumbLeft" class="rounded overflow-hidden bg-dark d-flex align-items-center justify-content-center" style="height: 70px;">
+                        <span class="text-muted small">Pending</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-4">
+                    <div class="p-2 rounded border border-secondary border-opacity-50" style="background: rgba(0,0,0,0.3);">
+                      <div class="small fw-semibold mb-1 text-secondary">Slight Right</div>
+                      <div id="thumbRight" class="rounded overflow-hidden bg-dark d-flex align-items-center justify-content-center" style="height: 70px;">
+                        <span class="text-muted small">Pending</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Registration Submit Button -->
+                <button type="submit" class="btn btn-primary-gradient w-100 py-2 fs-6 fw-bold" id="submitBtn">
+                  <i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile
+                </button>
+                <div id="statusMessage" class="mt-2 text-center small"></div>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <div class="text-center mt-4 pt-3 border-top border-secondary border-opacity-25">
+          <span class="text-secondary">Already registered?</span> 
+          <a href="{{ url_for('auth.login') }}" class="text-primary-emphasis fw-semibold ms-1">Log in here</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let webcamStream = null;
+  const capturedImages = {}; // angle -> base64 string
+
+  async function startWebcam() {
+    const video = document.getElementById('regVideo');
+    const badge = document.getElementById('cameraStatusBadge');
+    try {
+      webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = webcamStream;
+      badge.className = "badge bg-success";
+      badge.innerHTML = '<i class="fa-solid fa-video me-1"></i> Camera Active';
+    } catch (err) {
+      console.error("Camera access error:", err);
+      badge.className = "badge bg-danger";
+      badge.innerHTML = '<i class="fa-solid fa-video-slash me-1"></i> Camera Blocked / Not Found';
+      document.getElementById('statusMessage').innerHTML = `<span class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Camera access error: ${err.message}. Please allow camera access in browser.</span>`;
+    }
+  }
+
+  function captureAngle(angleKey, label) {
+    const video = document.getElementById('regVideo');
+    const canvas = document.getElementById('regCanvas');
+    if (!video.videoWidth) {
+      alert("Please wait for webcam to initialize.");
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    // Mirror image horizontally to match natural mirrored view
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    capturedImages[angleKey] = dataUrl;
+
+    // Update thumbnail preview
+    const thumbContainer = document.getElementById(
+      angleKey === 'frontal' ? 'thumbFrontal' : (angleKey === 'left' ? 'thumbLeft' : 'thumbRight')
+    );
+    thumbContainer.innerHTML = `<img src="${dataUrl}" class="w-100 h-100" style="object-fit: cover;">`;
+
+    // Highlight button state
+    const btn = document.getElementById(
+      angleKey === 'frontal' ? 'btnCapFrontal' : (angleKey === 'left' ? 'btnCapLeft' : 'btnCapRight')
+    );
+    btn.className = "btn btn-success btn-sm flex-grow-1";
+    btn.innerHTML = `<i class="fa-solid fa-check me-1"></i> ${label} Captured`;
+
+    document.getElementById('guideText').innerText = `${label} captured!`;
+  }
+
+  async function handleRegistrationSubmit(e) {
+    e.preventDefault();
+    const statusMsg = document.getElementById('statusMessage');
+    const submitBtn = document.getElementById('submitBtn');
+
+    const fullName = document.getElementById('fullName').value.trim();
+    const candidateId = document.getElementById('candidateId').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+
+    if (password !== confirmPassword) {
+      statusMsg.innerHTML = '<span class="text-danger fw-semibold">Passwords do not match.</span>';
+      return;
+    }
+
+    // Ensure at least 1 image captured (frontal required, multi-angle recommended)
+    if (!capturedImages['frontal']) {
+      statusMsg.innerHTML = '<span class="text-warning fw-semibold">Please capture at least the Frontal face image using the webcam.</span>';
+      return;
+    }
+
+    const faceImagesArray = [];
+    for (const [angle, img] of Object.entries(capturedImages)) {
+      faceImagesArray.push({ angle: angle, image: img });
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Extracting Facial Biometrics & Registering...';
+    statusMsg.innerHTML = '<span class="text-info">Processing face detection and neural embeddings...</span>';
+
+    try {
+      const resp = await fetch('{{ url_for("auth.register") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: fullName,
+          candidate_id: candidateId,
+          email: email,
+          password: password,
+          face_images: faceImagesArray
+        })
+      });
+
+      const res = await resp.json();
+      if (res.success) {
+        statusMsg.innerHTML = `<span class="text-success fw-bold">${res.message}</span>`;
+        if (webcamStream) {
+          webcamStream.getTracks().forEach(track => track.stop());
+        }
+        setTimeout(() => {
+          window.location.href = res.redirect || '{{ url_for("auth.login") }}';
+        }, 1200);
+      } else {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile';
+        statusMsg.innerHTML = `<span class="text-danger fw-bold"><i class="fa-solid fa-circle-exclamation me-1"></i> ${res.message}</span>`;
+      }
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile';
+      statusMsg.innerHTML = `<span class="text-danger">Network error: ${err.message}</span>`;
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', startWebcam);
+  window.addEventListener('beforeunload', () => {
+    if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+  });
+</script>
+{% endblock %}

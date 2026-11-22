@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}Administrator Console - Intelligent Interview Analyzer{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h3 class="fw-bold mb-0 text-white"><i class="fa-solid fa-toolbox me-2 text-warning"></i>Proctoring Administration Console</h3>
+      <span class="text-secondary small">Logged in as Administrator: <strong class="text-white">{{ admin_username }}</strong></span>
+    </div>
+    <div class="d-flex gap-2">
+      <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25 px-3 py-2">
+        <i class="fa-solid fa-users me-1"></i> {{ candidates|length }} Candidate(s)
+      </span>
+      <span class="badge bg-warning bg-opacity-25 text-warning border border-warning border-opacity-25 px-3 py-2">
+        <i class="fa-solid fa-clipboard-list me-1"></i> {{ interviews|length }} Interview(s)
+      </span>
+    </div>
+  </div>
+
+  <!-- Candidates Table -->
+  <div class="custom-card p-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="fw-bold mb-0 text-white"><i class="fa-solid fa-user-check me-2 text-info"></i>Registered Candidates</h5>
+      <span class="small text-secondary">Live Database Records</span>
+    </div>
+
+    {% if candidates %}
+      <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle mb-0">
+          <thead class="text-secondary small">
+            <tr>
+              <th>Candidate ID</th>
+              <th>Full Name</th>
+              <th>Email</th>
+              <th>Face Biometrics</th>
+              <th>Interviews</th>
+              <th>Registered At</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in candidates %}
+              <tr>
+                <td class="font-monospace fw-bold text-info">{{ c.candidate_id }}</td>
+                <td class="fw-semibold text-white">{{ c.full_name }}</td>
+                <td class="text-secondary small">{{ c.email }}</td>
+                <td>
+                  <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25">
+                    <i class="fa-solid fa-face-smile me-1"></i> {{ c.embedding_count }} Angle(s)
+                  </span>
+                </td>
+                <td>
+                  <span class="badge bg-secondary">{{ c.interview_count }}</span>
+                </td>
+                <td class="small text-secondary">{{ c.created_at }}</td>
+                <td class="text-end">
+                  <form method="POST" action="{{ url_for('admin.delete_candidate_record', candidate_id=c.candidate_id) }}" onsubmit="return confirm('Are you sure you want to delete candidate {{ c.candidate_id }} and all associated biometric and interview data? This action is irreversible.');" class="d-inline">
+                    <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete Candidate">
+                      <i class="fa-solid fa-trash me-1"></i> Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-center py-4 text-secondary">
+        <p class="mb-0">No registered candidates found in the database.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Interview History & Integrity Audit Log -->
+  <div class="custom-card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="fw-bold mb-0 text-white"><i class="fa-solid fa-shield-virus me-2 text-warning"></i>Interview History & Audit Logs</h5>
+      <span class="small text-secondary">Includes Termination Reasons & Security Warnings</span>
+    </div>
+
+    {% if interviews %}
+      <div class="table-responsive">
+        <table class="table table-dark table-hover align-middle mb-0">
+          <thead class="text-secondary small">
+            <tr>
+              <th>Session ID</th>
+              <th>Candidate</th>
+              <th>Start Time</th>
+              <th>End Time</th>
+              <th>Status</th>
+              <th>Warnings</th>
+              <th>Termination Reason / Outcome</th>
+              <th class="text-end">Audit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for itv in interviews %}
+              <tr>
+                <td class="font-monospace fw-bold text-info">{{ itv.session_id }}</td>
+                <td>
+                  <div class="fw-semibold text-white">{{ itv.full_name }}</div>
+                  <div class="text-muted small font-monospace">{{ itv.candidate_id }}</div>
+                </td>
+                <td class="small">{{ itv.start_time }}</td>
+                <td class="small">{{ itv.end_time or '-' }}</td>
+                <td>
+                  {% if itv.status == 'completed' %}
+                    <span class="status-pill status-pill-green"><i class="fa-solid fa-check me-1"></i> Completed</span>
+                  {% elif itv.status == 'terminated' %}
+                    <span class="status-pill status-pill-red"><i class="fa-solid fa-ban me-1"></i> Terminated</span>
+                  {% else %}
+                    <span class="status-pill status-pill-yellow"><i class="fa-solid fa-spinner fa-spin me-1"></i> In Progress</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="badge {{ 'bg-danger' if itv.warning_count > 2 else 'bg-dark border border-secondary text-white' }}">
+                    {{ itv.warning_count }}
+                  </span>
+                </td>
+                <td class="small">
+                  {% if itv.termination_reason %}
+                    <span class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i> {{ itv.termination_reason }}</span>
+                  {% elif itv.final_notes %}
+                    <span class="text-secondary">{{ itv.final_notes }}</span>
+                  {% else %}
+                    <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  <button type="button" class="btn btn-outline-info btn-sm" onclick="viewAuditTrail('{{ itv.session_id }}')">
+                    <i class="fa-solid fa-magnifying-glass me-1"></i> Events
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-center py-4 text-secondary">
+        <p class="mb-0">No interview sessions recorded yet.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal for Session Audit Events -->
+<div class="modal fade" id="auditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content custom-card border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-white">
+          <i class="fa-solid fa-fingerprint me-2 text-info"></i>Session Audit Trail: <span id="auditSessionId" class="font-monospace text-primary-emphasis"></span>
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="auditContent">
+          <div class="text-center py-4"><span class="spinner-border text-info"></span></div>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function viewAuditTrail(sessionId) {
+    document.getElementById('auditSessionId').innerText = sessionId;
+    const content = document.getElementById('auditContent');
+    content.innerHTML = '<div class="text-center py-4"><span class="spinner-border text-info"></span></div>';
+    
+    const myModal = new bootstrap.Modal(document.getElementById('auditModal'));
+    myModal.show();
+
+    try {
+      const resp = await fetch(`/admin/interview/${sessionId}/events`);
+      const data = await resp.json();
+      
+      let html = '';
+
+      // Answers Section
+      if (data.answers && data.answers.length > 0) {
+        html += '<h6 class="fw-bold text-info mb-2"><i class="fa-solid fa-file-lines me-1"></i> Candidate Responses</h6>';
+        html += '<div class="list-group mb-4">';
+        data.answers.forEach(a => {
+          html += `
+            <div class="list-group-item bg-dark text-white border-secondary mb-2 rounded">
+              <div class="fw-semibold text-primary-emphasis mb-1">Q${a.question_order}: ${a.question_text}</div>
+              <p class="small text-secondary mb-1" style="white-space: pre-wrap;">${a.answer_text}</p>
+              <div class="small text-muted" style="font-size: 0.75rem;">Submitted: ${a.submitted_at}</div>
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      // Monitoring Events Section
+      html += '<h6 class="fw-bold text-warning mb-2"><i class="fa-solid fa-list-check me-1"></i> Biometric Monitoring Events</h6>';
+      if (data.events && data.events.length > 0) {
+        html += '<div class="list-group">';
+        data.events.forEach(ev => {
+          let badgeClass = 'bg-secondary';
+          if (ev.severity === 'CRITICAL') badgeClass = 'bg-danger';
+          else if (ev.severity === 'WARNING') badgeClass = 'bg-warning text-dark';
+          else if (ev.severity === 'INFO') badgeClass = 'bg-info text-dark';
+
+          html += `
+            <div class="list-group-item bg-dark text-white border-secondary mb-1 rounded d-flex justify-content-between align-items-center">
+              <div>
+                <span class="badge ${badgeClass} me-2">${ev.event_type}</span>
+                <span class="small">${ev.details || '-'}</span>
+              </div>
+              <span class="small text-muted font-monospace">${ev.timestamp}</span>
+            </div>
+          `;
+        });
+        html += '</div>';
+      } else {
+        html += '<p class="small text-muted">No specific security events logged for this session.</p>';
+      }
+
+      content.innerHTML = html;
+    } catch (err) {
+      content.innerHTML = `<div class="alert alert-danger">Error loading audit events: ${err.message}</div>`;
+    }
+  }
+</script>
+{% endblock %}

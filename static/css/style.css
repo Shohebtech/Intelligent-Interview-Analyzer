@@ -1,0 +1,234 @@
+/* Intelligent Interview Analyzer - Modern Dark Navy & Purple Accent Theme */
+:root {
+  --navy-darkest: #070d1e;
+  --navy-dark: #0b132b;
+  --navy-card: #141e3c;
+  --navy-border: #23315a;
+  --purple-accent: #7c3aed;
+  --purple-glow: rgba(124, 58, 237, 0.35);
+  --blue-accent: #2563eb;
+  --cyan-accent: #06b6d4;
+  --text-primary: #f8fafc;
+  --text-muted: #94a3b8;
+  --green-status: #10b981;
+  --yellow-status: #f59e0b;
+  --red-status: #ef4444;
+}
+
+body {
+  background-color: var(--navy-dark);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Navbar */
+.navbar-custom {
+  background: rgba(11, 19, 43, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--navy-border);
+}
+
+.brand-title {
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Cards */
+.custom-card {
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: 1rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.custom-card-white {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.custom-card:hover {
+  border-color: #3b82f6;
+}
+
+/* Modern Buttons */
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 14px 0 var(--purple-glow);
+  transition: all 0.25s ease;
+}
+
+.btn-primary-gradient:hover {
+  background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px 0 rgba(124, 58, 237, 0.5);
+  color: #fff;
+}
+
+.btn-danger-gradient {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+/* Indicators */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.status-pill-green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-pill-yellow {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-pill-red {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+/* Live Webcam Container */
+.webcam-container {
+  position: relative;
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--navy-border);
+}
+
+.webcam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror camera for natural feel */
+}
+
+.webcam-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.webcam-badge {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+/* 5-Second Red Alert Banner */
+.mismatch-banner {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.95), rgba(153, 27, 27, 0.95));
+  border: 2px solid #f87171;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.6);
+  animation: pulse-red 1.2s infinite;
+}
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.85); }
+  100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+}
+
+.countdown-number {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+/* Feature Cards on Landing */
+.feature-box {
+  padding: 1.75rem;
+  border-radius: 1rem;
+  background: rgba(20, 30, 60, 0.6);
+  border: 1px solid var(--navy-border);
+  transition: all 0.2s ease;
+}
+
+.feature-box:hover {
+  background: rgba(20, 30, 60, 0.9);
+  border-color: var(--purple-accent);
+  transform: translateY(-3px);
+}
+
+.feature-icon {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: rgba(124, 58, 237, 0.15);
+  color: #a78bfa;
+  font-size: 1.4rem;
+  margin-bottom: 1rem;
+}
+
+/* Form Controls */
+.form-control, .form-select {
+  background-color: #0c1630;
+  border: 1px solid var(--navy-border);
+  color: #f1f5f9;
+  border-radius: 0.5rem;
+}
+
+.form-control:focus, .form-select:focus {
+  background-color: #0e1a3a;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+  color: #fff;
+}
+
+.form-control::placeholder {
+  color: #64748b;
+}
+
+/* Footers */
+footer {
+  margin-top: auto;
+  border-top: 1px solid var(--navy-border);
+  background: var(--navy-darkest);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
