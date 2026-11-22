@@ -50,10 +50,17 @@ def create_app():
 
     return app
 
+# Create Flask app for Vercel
+app = create_app()
+
 if __name__ == '__main__':
-    app = create_app()
     print("=========================================================")
-    print("  Intelligent Interview Analyzer Server Starting")
-    print(f"  Access locally at: http://localhost:{Config.PORT}")
+    print(" Intelligent Interview Analyzer Server Starting")
+    print(f" Access locally at: http://localhost:{Config.PORT}")
     print("=========================================================")
-    app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
+
+    app.run(
+        host=Config.HOST,
+        port=Config.PORT,
+        debug=Config.DEBUG
+    )
