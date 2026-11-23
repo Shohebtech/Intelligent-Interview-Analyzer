@@ -9,9 +9,27 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'interview-analyzer-super-secret-key-2026')
     DATABASE = os.path.join(INSTANCE_DIR, 'interview_analyzer.db')
     
+    # Session Security
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
+    
+    # Email / SMTP Configuration (set via environment variables)
+    SMTP_HOST = os.environ.get('SMTP_HOST', '')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
+    SMTP_USER = os.environ.get('SMTP_USER', '')
+    SMTP_PASS = os.environ.get('SMTP_PASS', '')
+    SMTP_USE_TLS = os.environ.get('SMTP_USE_TLS', 'True').lower() in ('true', '1', 't')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_DEFAULT_SENDER', 'no-reply@interview-analyzer.com')
+    
+    # OTP Configuration
+    OTP_EXPIRY_MINUTES = 10
+    OTP_RESEND_COOLDOWN_SECONDS = 60
+    
+    # Password Policy
+    MIN_PASSWORD_LENGTH = 12
+    
     # Facial Recognition Settings
-    # Distance threshold for face verification (cosine distance or Euclidean distance)
-    # Lower value means stricter match
     FACE_MATCH_THRESHOLD = 0.45  # Cosine distance threshold for SFace or normalized embedding
     
     # Head Pose Thresholds (in degrees)

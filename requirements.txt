@@ -3,3 +3,4 @@ opencv-python>=4.10.0
 numpy>=1.26.0
 mediapipe>=0.10.0
 Werkzeug>=3.0.0
+bcrypt>=4.0.0

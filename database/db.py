@@ -1,13 +1,16 @@
 """
 Database management for Intelligent Interview Analyzer.
-SQLite-based storage with robust connection handling and schema initialization.
+SQLite-based storage with robust connection handling, bcrypt password hashing,
+schema initialization, and email OTP management.
 """
 import sqlite3
 import os
 import json
+import time
+import secrets
+import bcrypt
 import numpy as np
 from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 
 def get_db_connection():
@@ -17,8 +20,28 @@ def get_db_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt with standard work factor."""
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def check_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against bcrypt hash, with fallback to legacy hashes."""
+    if not plain_password or not hashed_password:
+        return False
+    try:
+        # Check if bcrypt hash format ($2a$, $2b$, $2y$)
+        if hashed_password.startswith(('$2b$', '$2a$', '$2y$')):
+            return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+        # Fallback for werkzeug hashes if previously stored
+        from werkzeug.security import check_password_hash
+        return check_password_hash(hashed_password, plain_password)
+    except Exception as e:
+        print(f"Password verification error: {e}")
+        return False
+
 def init_db():
-    """Initialize database tables and default interview questions."""
+    """Initialize database tables, schema migrations, and default interview questions."""
     os.makedirs(os.path.dirname(Config.DATABASE), exist_ok=True)
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -31,11 +54,41 @@ def init_db():
         full_name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
+        is_verified INTEGER DEFAULT 0,
+        verified_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
-    # 2. Face Embeddings table (stores multiple angle embeddings per candidate)
+    # Schema migration: check if is_verified column exists
+    cursor.execute("PRAGMA table_info(candidates)")
+    cols = [r['name'] for r in cursor.fetchall()]
+    if 'is_verified' not in cols:
+        try:
+            cursor.execute("ALTER TABLE candidates ADD COLUMN is_verified INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE candidates ADD COLUMN verified_at TIMESTAMP")
+            # Set existing registered candidates to verified to prevent breaking previous sessions
+            cursor.execute("UPDATE candidates SET is_verified = 1 WHERE is_verified = 0")
+            conn.commit()
+        except Exception as e:
+            print(f"Migration notice: {e}")
+
+    # 2. Email OTPs table for verification & password reset
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS email_otps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        otp_code TEXT NOT NULL,
+        purpose TEXT NOT NULL, -- 'registration', 'forgot_password'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_epoch REAL NOT NULL,
+        expires_epoch REAL NOT NULL,
+        is_used INTEGER DEFAULT 0
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_otps ON email_otps(email, purpose, is_used)")
+
+    # 3. Face Embeddings table (stores multiple angle embeddings per candidate)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS face_embeddings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +100,7 @@ def init_db():
     )
     """)
 
-    # 3. Interviews table
+    # 4. Interviews table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS interviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,21 +116,21 @@ def init_db():
     )
     """)
 
-    # 4. Monitoring Events table
+    # 5. Monitoring Events table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS monitoring_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL,
         candidate_id TEXT NOT NULL,
-        event_type TEXT NOT NULL, -- 'VERIFIED', 'MISMATCH', 'NO_FACE', 'MULTIPLE_FACES', 'HEAD_YAW', 'HEAD_PITCH', 'LIP_SPEAKING', 'WARNING', 'TERMINATED'
-        severity TEXT NOT NULL DEFAULT 'INFO', -- 'INFO', 'WARNING', 'CRITICAL'
+        event_type TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'INFO',
         details TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES interviews(session_id) ON DELETE CASCADE
     )
     """)
 
-    # 5. Admins table (no default hardcoded credentials - user creates them)
+    # 6. Admins table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS admins (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +141,7 @@ def init_db():
     )
     """)
 
-    # 6. Standard Interview Questions
+    # 7. Standard Interview Questions
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS interview_questions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,7 +152,7 @@ def init_db():
     )
     """)
 
-    # 7. Candidate Answers during interview
+    # 8. Candidate Answers during interview
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS candidate_answers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,27 +183,165 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Candidate helper functions
-def create_candidate(candidate_id, full_name, email, password):
-    """Register a new candidate."""
+# OTP Helpers
+def can_resend_otp(email: str, purpose: str = "registration"):
+    """
+    Check if a new OTP can be requested (enforces cooldown timer).
+    Returns (can_resend: bool, seconds_remaining: int)
+    """
+    email_clean = email.strip().lower()
+    cooldown = Config.OTP_RESEND_COOLDOWN_SECONDS
+    now = time.time()
+    
     conn = get_db_connection()
     cursor = conn.cursor()
-    password_hash = generate_password_hash(password)
+    cursor.execute("""
+    SELECT created_epoch FROM email_otps 
+    WHERE email = ? AND purpose = ?
+    ORDER BY created_epoch DESC LIMIT 1
+    """, (email_clean, purpose))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return True, 0
+        
+    elapsed = now - row['created_epoch']
+    if elapsed < cooldown:
+        return False, int(cooldown - elapsed)
+        
+    return True, 0
+
+def create_email_otp(email: str, purpose: str = "registration") -> str:
+    """
+    Generate and save a 6-digit numeric OTP in database with expiration.
+    Returns the generated OTP string.
+    """
+    email_clean = email.strip().lower()
+    # 6-digit numeric OTP
+    otp_code = str(secrets.randbelow(900000) + 100000)
+    now = time.time()
+    expires_at = now + (Config.OTP_EXPIRY_MINUTES * 60)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Invalidate previous unused OTPs for this email & purpose
+    cursor.execute("""
+    UPDATE email_otps SET is_used = 1 
+    WHERE email = ? AND purpose = ? AND is_used = 0
+    """, (email_clean, purpose))
+
+    cursor.execute("""
+    INSERT INTO email_otps (email, otp_code, purpose, created_epoch, expires_epoch, is_used)
+    VALUES (?, ?, ?, ?, ?, 0)
+    """, (email_clean, otp_code, purpose, now, expires_at))
+    conn.commit()
+    conn.close()
+    return otp_code
+
+def verify_email_otp(email: str, otp_code: str, purpose: str = "registration"):
+    """
+    Validate provided OTP against active, unexpired database records.
+    Returns (success: bool, message: str)
+    """
+    email_clean = email.strip().lower()
+    otp_clean = str(otp_code).strip()
+    now = time.time()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT * FROM email_otps 
+    WHERE email = ? AND purpose = ? AND is_used = 0
+    ORDER BY created_epoch DESC LIMIT 1
+    """, (email_clean, purpose))
+    record = cursor.fetchone()
+
+    if not record:
+        conn.close()
+        return False, "No active verification code found for this email. Please request a new code."
+
+    if record['expires_epoch'] < now:
+        conn.close()
+        return False, "Verification code has expired. Please request a new code."
+
+    if record['otp_code'] != otp_clean:
+        conn.close()
+        return False, "Incorrect verification code. Please check and try again."
+
+    # Mark as used
+    cursor.execute("UPDATE email_otps SET is_used = 1 WHERE id = ?", (record['id'],))
+    conn.commit()
+    conn.close()
+    return True, "Verification successful."
+
+# Candidate helper functions
+def is_email_registered(email: str) -> bool:
+    """Check if an email address is already registered."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM candidates WHERE email = ?", (email.strip().lower(),))
+    row = cursor.fetchone()
+    conn.close()
+    return bool(row)
+
+def is_candidate_id_registered(candidate_id: str) -> bool:
+    """Check if a candidate ID already exists."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM candidates WHERE candidate_id = ?", (candidate_id.strip(),))
+    row = cursor.fetchone()
+    conn.close()
+    return bool(row)
+
+def create_candidate(candidate_id, full_name, email, password, is_verified=1):
+    """Register a new candidate with bcrypt password hash."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    pw_hash = hash_password(password)
+    email_clean = email.strip().lower()
+    cand_id_clean = candidate_id.strip()
+
     try:
         cursor.execute("""
-        INSERT INTO candidates (candidate_id, full_name, email, password_hash)
-        VALUES (?, ?, ?, ?)
-        """, (candidate_id.strip(), full_name.strip(), email.strip().lower(), password_hash))
+        INSERT INTO candidates (candidate_id, full_name, email, password_hash, is_verified, verified_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (cand_id_clean, full_name.strip(), email_clean, pw_hash, 1 if is_verified else 0))
         conn.commit()
-        return True, "Candidate registered successfully"
+        return True, "Candidate registered successfully."
     except sqlite3.IntegrityError as e:
         if "candidate_id" in str(e):
             return False, "Candidate ID already exists."
         elif "email" in str(e):
-            return False, "Email address already registered."
+            return False, "An account with this email address already exists."
         return False, f"Registration failed: {str(e)}"
     finally:
         conn.close()
+
+def update_candidate_password(email: str, new_password: str):
+    """Update candidate password with new bcrypt hash."""
+    email_clean = email.strip().lower()
+    pw_hash = hash_password(new_password)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE candidates SET password_hash = ? WHERE email = ?
+    """, (pw_hash, email_clean))
+    affected = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+def mark_candidate_email_verified(email: str):
+    """Set email verification flag to true."""
+    email_clean = email.strip().lower()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE candidates SET is_verified = 1, verified_at = CURRENT_TIMESTAMP WHERE email = ?
+    """, (email_clean,))
+    conn.commit()
+    conn.close()
 
 def save_face_embeddings(candidate_id, embeddings_list):
     """
@@ -198,24 +389,49 @@ def get_candidate_embeddings(candidate_id):
     return embeddings
 
 def verify_candidate_credentials(identifier, password):
-    """Authenticate candidate by candidate_id or email."""
+    """
+    Authenticate candidate by candidate_id or email using bcrypt verification.
+    Returns (candidate_dict, error_status) where error_status can be:
+    - None (success)
+    - 'unverified' (valid credentials but email not verified)
+    - 'invalid_credentials' (wrong user/password)
+    """
+    ident = identifier.strip()
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     SELECT * FROM candidates WHERE candidate_id = ? OR email = ?
-    """, (identifier.strip(), identifier.strip().lower()))
+    """, (ident, ident.lower()))
     candidate = cursor.fetchone()
     conn.close()
 
-    if candidate and check_password_hash(candidate['password_hash'], password):
-        return dict(candidate)
-    return None
+    if not candidate:
+        return None, "invalid_credentials"
+
+    cand_dict = dict(candidate)
+    if not check_password(password, cand_dict['password_hash']):
+        return None, "invalid_credentials"
+
+    # Check email verification status
+    if not cand_dict.get('is_verified', 1):
+        return cand_dict, "unverified"
+
+    return cand_dict, None
 
 def get_candidate(candidate_id):
     """Retrieve candidate profile."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM candidates WHERE candidate_id = ?", (candidate_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_candidate_by_email(email):
+    """Retrieve candidate profile by email."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM candidates WHERE email = ?", (email.strip().lower(),))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
@@ -310,17 +526,17 @@ def get_monitoring_events(session_id, limit=50):
 
 # Admin helpers
 def create_admin(username, email, password):
-    """Create an administrator account."""
+    """Create an administrator account with bcrypt."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    password_hash = generate_password_hash(password)
+    password_hash = hash_password(password)
     try:
         cursor.execute("""
         INSERT INTO admins (username, email, password_hash)
         VALUES (?, ?, ?)
         """, (username.strip(), email.strip().lower(), password_hash))
         conn.commit()
-        return True, "Admin created successfully"
+        return True, "Admin created successfully."
     except sqlite3.IntegrityError as e:
         if "username" in str(e):
             return False, "Admin username already exists."
@@ -339,7 +555,7 @@ def verify_admin_credentials(username_or_email, password):
     """, (username_or_email.strip(), username_or_email.strip().lower()))
     admin = cursor.fetchone()
     conn.close()
-    if admin and check_password_hash(admin['password_hash'], password):
+    if admin and check_password(password, admin['password_hash']):
         return dict(admin)
     return None
 
@@ -390,7 +606,6 @@ def delete_candidate(candidate_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Delete related answers and events
         cursor.execute("SELECT session_id FROM interviews WHERE candidate_id = ?", (candidate_id,))
         sessions = [r['session_id'] for r in cursor.fetchall()]
         for s in sessions:

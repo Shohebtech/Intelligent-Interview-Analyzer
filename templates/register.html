@@ -10,44 +10,117 @@
         <div class="text-center mb-4">
           <h2 class="fw-bold mb-2">Candidate Biometric Registration</h2>
           <p class="text-secondary">
-            Register your profile and capture multi-angle facial embeddings via your webcam to enable real-time interview verification.
+            Register your profile, verify your email with OTP, and capture multi-angle facial embeddings via your webcam.
           </p>
         </div>
 
+        <div id="formAlertBox" class="alert d-none py-2 px-3 small d-flex align-items-center gap-2 mb-3"></div>
+
         <form id="registrationForm" onsubmit="handleRegistrationSubmit(event)">
           <div class="row g-4">
-            <!-- Left Column: Profile Information -->
+            <!-- Left Column: Profile & Authentication Credentials -->
             <div class="col-lg-5">
-              <div class="p-4 rounded-3 h-100" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
+              <div class="p-4 rounded-3 h-100 d-flex flex-column" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
                 <h5 class="fw-bold mb-3 text-info"><i class="fa-solid fa-user-pen me-2"></i>Profile Credentials</h5>
                 
+                <!-- Full Name -->
                 <div class="mb-3">
                   <label class="form-label small fw-semibold">Full Name <span class="text-danger">*</span></label>
                   <input type="text" class="form-control" id="fullName" placeholder="e.g. Sarah Jenkins" required>
                 </div>
 
+                <!-- Candidate ID -->
                 <div class="mb-3">
                   <label class="form-label small fw-semibold">Candidate ID <span class="text-danger">*</span></label>
                   <input type="text" class="form-control" id="candidateId" placeholder="e.g. CAND-8921" required>
                   <div class="form-text text-muted small">Unique ID for your interview credentials.</div>
                 </div>
 
+                <!-- Email Address with OTP Verification -->
                 <div class="mb-3">
-                  <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
-                  <input type="email" class="form-control" id="email" placeholder="sarah.jenkins@example.com" required>
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label small fw-semibold mb-0">Email Address <span class="text-danger">*</span></label>
+                    <span id="emailVerifyBadge" class="badge bg-secondary" style="font-size: 0.72rem;">
+                      <i class="fa-solid fa-envelope-circle-check me-1"></i> Verification Pending
+                    </span>
+                  </div>
+                  <div class="input-group">
+                    <input type="email" class="form-control" id="email" placeholder="sarah.jenkins@example.com" required oninput="handleEmailChange()">
+                    <button type="button" class="btn btn-outline-info" id="btnSendEmailOtp" onclick="sendRegistrationOtp()">
+                      <i class="fa-solid fa-paper-plane me-1"></i> Send OTP
+                    </button>
+                  </div>
+                  <div id="otpStatusText" class="form-text small mt-1"></div>
                 </div>
 
-                <div class="mb-3">
-                  <label class="form-label small fw-semibold">Password <span class="text-danger">*</span></label>
-                  <input type="password" class="form-control" id="password" placeholder="At least 6 characters" minlength="6" required>
+                <!-- Inline OTP Verification Box -->
+                <div class="mb-3 p-3 rounded-2" id="otpBox" style="display: none; background: rgba(11, 19, 43, 0.7); border: 1px dashed #38bdf8;">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label small fw-semibold text-info mb-0">Enter 6-Digit Email Code <span class="text-danger">*</span></label>
+                    <button type="button" class="btn btn-link btn-sm text-info p-0 text-decoration-none small" id="btnResendOtp" onclick="sendRegistrationOtp()" style="display: none;">
+                      Resend Code
+                    </button>
+                  </div>
+                  <div class="input-group mb-1">
+                    <input type="text" class="form-control font-monospace text-center fs-6" id="emailOtp" placeholder="123456" maxlength="6" pattern="[0-9]{6}">
+                    <button type="button" class="btn btn-info text-dark fw-bold px-3" id="btnVerifyCode" onclick="verifyRegistrationOtp()">
+                      Verify
+                    </button>
+                  </div>
+                  <div id="otpVerifyFeedback" class="small mt-1"></div>
                 </div>
 
+                <!-- Password with Strong Generator & Strength Indicator -->
+                <div class="mb-3">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label small fw-semibold mb-0">Password <span class="text-danger">*</span></label>
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.75rem;" onclick="generateAndSetPassword()">
+                      <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Suggest Strong
+                    </button>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" class="form-control" id="password" placeholder="Min 12 characters" minlength="12" required oninput="handlePasswordInput()">
+                    <button type="button" class="input-group-text bg-dark border-secondary text-secondary toggle-pw-btn" onclick="togglePasswordVisibility('password', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                  </div>
+
+                  <!-- Strength Bar -->
+                  <div class="mt-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="text-secondary" style="font-size: 0.72rem;">Password Strength:</span>
+                      <span id="strengthLabel" class="badge bg-secondary" style="font-size: 0.72rem;">Too Short</span>
+                    </div>
+                    <div class="progress" style="height: 5px; background: rgba(255,255,255,0.08);">
+                      <div id="strengthBar" class="progress-bar bg-danger" style="width: 0%;"></div>
+                    </div>
+                  </div>
+
+                  <!-- Password Checklist -->
+                  <div class="mt-2 p-2 rounded small" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--navy-border); font-size: 0.72rem;">
+                    <div class="row g-1">
+                      <div class="col-6" id="ruleLength"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> 12+ Characters</div>
+                      <div class="col-6" id="ruleUpper"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> Uppercase (A-Z)</div>
+                      <div class="col-6" id="ruleLower"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> Lowercase (a-z)</div>
+                      <div class="col-6" id="ruleNumber"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> Number (0-9)</div>
+                      <div class="col-12" id="ruleSpecial"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> Special Char (@, #, $, %, etc.)</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Confirm Password -->
                 <div class="mb-3">
                   <label class="form-label small fw-semibold">Confirm Password <span class="text-danger">*</span></label>
-                  <input type="password" class="form-control" id="confirmPassword" placeholder="Re-enter password" minlength="6" required>
+                  <div class="input-group">
+                    <input type="password" class="form-control" id="confirmPassword" placeholder="Re-enter password" minlength="12" required oninput="checkPasswordMatch()">
+                    <button type="button" class="input-group-text bg-dark border-secondary text-secondary toggle-pw-btn" onclick="togglePasswordVisibility('confirmPassword', this)">
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
+                  </div>
+                  <div id="matchMessage" class="form-text small mt-1"></div>
                 </div>
 
-                <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0">
+                <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-0 mt-auto">
                   <i class="fa-solid fa-shield-cat"></i>
                   <span>Biometric embeddings are encrypted and never leave this secure local instance.</span>
                 </div>
@@ -56,7 +129,7 @@
 
             <!-- Right Column: Interactive Face Capture Wizard -->
             <div class="col-lg-7">
-              <div class="p-4 rounded-3 h-100" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
+              <div class="p-4 rounded-3 h-100 d-flex flex-column" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--navy-border);">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <h5 class="fw-bold mb-0 text-primary-emphasis"><i class="fa-solid fa-camera me-2"></i>Webcam Face Enrollment</h5>
                   <span id="cameraStatusBadge" class="badge bg-secondary">Camera Offline</span>
@@ -115,7 +188,7 @@
                 </div>
 
                 <!-- Registration Submit Button -->
-                <button type="submit" class="btn btn-primary-gradient w-100 py-2 fs-6 fw-bold" id="submitBtn">
+                <button type="submit" class="btn btn-primary-gradient w-100 py-2 fs-6 fw-bold mt-auto" id="submitBtn">
                   <i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile
                 </button>
                 <div id="statusMessage" class="mt-2 text-center small"></div>
@@ -138,7 +211,266 @@
 <script>
   let webcamStream = null;
   const capturedImages = {}; // angle -> base64 string
+  let isEmailVerified = false;
+  let resendTimer = null;
+  let cooldownSeconds = 0;
 
+  function showAlert(msg, type='danger') {
+    const box = document.getElementById('formAlertBox');
+    box.className = `alert alert-${type} py-2 px-3 small d-flex align-items-center gap-2 mb-3`;
+    box.innerHTML = `<i class="fa-solid fa-${type === 'danger' ? 'circle-exclamation' : 'circle-check'}"></i> <div>${msg}</div>`;
+    box.classList.remove('d-none');
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function hideAlert() {
+    document.getElementById('formAlertBox').classList.add('d-none');
+  }
+
+  function handleEmailChange() {
+    if (isEmailVerified) {
+      isEmailVerified = false;
+      const badge = document.getElementById('emailVerifyBadge');
+      badge.className = 'badge bg-secondary';
+      badge.innerHTML = '<i class="fa-solid fa-envelope-circle-check me-1"></i> Verification Pending';
+      document.getElementById('otpStatusText').innerHTML = '';
+      document.getElementById('otpBox').style.display = 'none';
+    }
+  }
+
+  function togglePasswordVisibility(fieldId, btn) {
+    const input = document.getElementById(fieldId);
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+      input.type = 'text';
+      icon.className = 'fa-solid fa-eye-slash text-info';
+    } else {
+      input.type = 'password';
+      icon.className = 'fa-solid fa-eye';
+    }
+  }
+
+  function generateAndSetPassword() {
+    const uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const lowers = "abcdefghijklmnopqrstuvwxyz";
+    const digits = "0123456789";
+    const specials = "@#$%&*!_-+=~";
+    const all = uppers + lowers + digits + specials;
+
+    let pwdArr = [
+      uppers[Math.floor(Math.random() * uppers.length)],
+      lowers[Math.floor(Math.random() * lowers.length)],
+      digits[Math.floor(Math.random() * digits.length)],
+      specials[Math.floor(Math.random() * specials.length)],
+      uppers[Math.floor(Math.random() * uppers.length)],
+      lowers[Math.floor(Math.random() * lowers.length)],
+      digits[Math.floor(Math.random() * digits.length)],
+      specials[Math.floor(Math.random() * specials.length)]
+    ];
+
+    while (pwdArr.length < 14) {
+      pwdArr.push(all[Math.floor(Math.random() * all.length)]);
+    }
+
+    // Fisher-Yates shuffle
+    for (let i = pwdArr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pwdArr[i], pwdArr[j]] = [pwdArr[j], pwdArr[i]];
+    }
+
+    const generated = pwdArr.join('');
+    const p1 = document.getElementById('password');
+    const p2 = document.getElementById('confirmPassword');
+    p1.value = generated;
+    p2.value = generated;
+    p1.type = 'text';
+    p2.type = 'text';
+
+    handlePasswordInput();
+    checkPasswordMatch();
+  }
+
+  function handlePasswordInput() {
+    const val = document.getElementById('password').value;
+    const hasLen = val.length >= 12;
+    const hasUp = /[A-Z]/.test(val);
+    const hasLow = /[a-z]/.test(val);
+    const hasDig = /[0-9]/.test(val);
+    const hasSpec = /[@#$%^&*!_+\-=\[\]{}|;:,.<>?~]/.test(val);
+
+    updateRule('ruleLength', hasLen);
+    updateRule('ruleUpper', hasUp);
+    updateRule('ruleLower', hasLow);
+    updateRule('ruleNumber', hasDig);
+    updateRule('ruleSpecial', hasSpec);
+
+    const score = [hasLen, hasUp, hasLow, hasDig, hasSpec].filter(Boolean).length;
+    const bar = document.getElementById('strengthBar');
+    const label = document.getElementById('strengthLabel');
+
+    if (val.length === 0) {
+      bar.style.width = '0%';
+      label.className = 'badge bg-secondary';
+      label.innerText = 'Too Short';
+    } else if (!hasLen || score <= 2) {
+      bar.style.width = '25%';
+      bar.className = 'progress-bar bg-danger';
+      label.className = 'badge bg-danger';
+      label.innerText = 'Weak';
+    } else if (score === 3) {
+      bar.style.width = '50%';
+      bar.className = 'progress-bar bg-warning text-dark';
+      label.className = 'badge bg-warning text-dark';
+      label.innerText = 'Medium';
+    } else if (score === 4) {
+      bar.style.width = '75%';
+      bar.className = 'progress-bar bg-primary';
+      label.className = 'badge bg-primary';
+      label.innerText = 'Strong';
+    } else {
+      bar.style.width = '100%';
+      bar.className = 'progress-bar bg-success';
+      label.className = 'badge bg-success';
+      label.innerText = 'Very Strong';
+    }
+
+    checkPasswordMatch();
+  }
+
+  function updateRule(elementId, passed) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const text = el.innerText.trim();
+    if (passed) {
+      el.innerHTML = `<i class="fa-solid fa-circle-check text-success me-1"></i> ${text}`;
+      el.classList.add('text-success');
+      el.classList.remove('text-secondary');
+    } else {
+      el.innerHTML = `<i class="fa-solid fa-circle-xmark text-danger me-1"></i> ${text}`;
+      el.classList.remove('text-success');
+      el.classList.add('text-secondary');
+    }
+  }
+
+  function checkPasswordMatch() {
+    const p1 = document.getElementById('password').value;
+    const p2 = document.getElementById('confirmPassword').value;
+    const msg = document.getElementById('matchMessage');
+    if (!p2) {
+      msg.innerHTML = '';
+      return;
+    }
+    if (p1 === p2) {
+      msg.innerHTML = '<span class="text-success"><i class="fa-solid fa-check me-1"></i> Passwords match!</span>';
+    } else {
+      msg.innerHTML = '<span class="text-danger"><i class="fa-solid fa-xmark me-1"></i> Passwords do not match.</span>';
+    }
+  }
+
+  async function sendRegistrationOtp() {
+    const email = document.getElementById('email').value.trim();
+    const btn = document.getElementById('btnSendEmailOtp');
+    const statusTxt = document.getElementById('otpStatusText');
+    hideAlert();
+
+    if (!email || !email.includes('@')) {
+      showAlert("Please enter a valid email address.", "danger");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending...';
+    statusTxt.innerHTML = '<span class="text-info">Sending verification code to your email...</span>';
+
+    try {
+      const resp = await fetch('{{ url_for("auth.send_otp") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, purpose: 'registration' })
+      });
+      const data = await resp.json();
+
+      if (data.success) {
+        document.getElementById('otpBox').style.display = 'block';
+        statusTxt.innerHTML = `<span class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i> ${data.message}</span>`;
+        startCooldownTimer(data.cooldown_seconds || 60);
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Send OTP';
+        showAlert(data.message, "danger");
+        statusTxt.innerHTML = `<span class="text-danger">${data.message}</span>`;
+        if (data.cooldown && data.remaining_seconds) {
+          startCooldownTimer(data.remaining_seconds);
+        }
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Send OTP';
+      showAlert("Network error: " + err.message, "danger");
+    }
+  }
+
+  function startCooldownTimer(seconds) {
+    cooldownSeconds = seconds;
+    const btn = document.getElementById('btnSendEmailOtp');
+    const resendBtn = document.getElementById('btnResendOtp');
+    btn.disabled = true;
+    resendBtn.style.display = 'inline-block';
+    resendBtn.disabled = true;
+
+    if (resendTimer) clearInterval(resendTimer);
+    resendTimer = setInterval(() => {
+      cooldownSeconds--;
+      btn.innerText = `Resend (${cooldownSeconds}s)`;
+      resendBtn.innerText = `Resend (${cooldownSeconds}s)`;
+      if (cooldownSeconds <= 0) {
+        clearInterval(resendTimer);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Resend OTP';
+        resendBtn.disabled = false;
+        resendBtn.innerText = 'Resend Code';
+      }
+    }, 1000);
+  }
+
+  async function verifyRegistrationOtp() {
+    const email = document.getElementById('email').value.trim();
+    const otp = document.getElementById('emailOtp').value.trim();
+    const feedback = document.getElementById('otpVerifyFeedback');
+    const badge = document.getElementById('emailVerifyBadge');
+
+    if (!otp || otp.length !== 6) {
+      feedback.innerHTML = '<span class="text-danger">Please enter the 6-digit code.</span>';
+      return;
+    }
+
+    feedback.innerHTML = '<span class="text-info"><i class="fa-solid fa-spinner fa-spin me-1"></i> Verifying...</span>';
+
+    try {
+      const resp = await fetch('{{ url_for("auth.verify_otp") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, otp: otp, purpose: 'registration' })
+      });
+      const data = await resp.json();
+
+      if (data.success) {
+        isEmailVerified = true;
+        badge.className = 'badge bg-success';
+        badge.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i> Email Verified';
+        feedback.innerHTML = '<span class="text-success fw-bold"><i class="fa-solid fa-circle-check me-1"></i> Email verified successfully!</span>';
+        document.getElementById('emailOtp').disabled = true;
+        document.getElementById('btnVerifyCode').disabled = true;
+        document.getElementById('btnSendEmailOtp').disabled = true;
+      } else {
+        feedback.innerHTML = `<span class="text-danger fw-semibold"><i class="fa-solid fa-circle-xmark me-1"></i> ${data.message}</span>`;
+      }
+    } catch (err) {
+      feedback.innerHTML = `<span class="text-danger">Verification error: ${err.message}</span>`;
+    }
+  }
+
+  // --- Webcam Integration ---
   async function startWebcam() {
     const video = document.getElementById('regVideo');
     const badge = document.getElementById('cameraStatusBadge');
@@ -154,7 +486,7 @@
       console.error("Camera access error:", err);
       badge.className = "badge bg-danger";
       badge.innerHTML = '<i class="fa-solid fa-video-slash me-1"></i> Camera Blocked / Not Found';
-      document.getElementById('statusMessage').innerHTML = `<span class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Camera access error: ${err.message}. Please allow camera access in browser.</span>`;
+      document.getElementById('statusMessage').innerHTML = `<span class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Camera error: ${err.message}. Please allow camera access in browser.</span>`;
     }
   }
 
@@ -169,7 +501,6 @@
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
-    // Mirror image horizontally to match natural mirrored view
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -177,13 +508,11 @@
     const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
     capturedImages[angleKey] = dataUrl;
 
-    // Update thumbnail preview
     const thumbContainer = document.getElementById(
       angleKey === 'frontal' ? 'thumbFrontal' : (angleKey === 'left' ? 'thumbLeft' : 'thumbRight')
     );
     thumbContainer.innerHTML = `<img src="${dataUrl}" class="w-100 h-100" style="object-fit: cover;">`;
 
-    // Highlight button state
     const btn = document.getElementById(
       angleKey === 'frontal' ? 'btnCapFrontal' : (angleKey === 'left' ? 'btnCapLeft' : 'btnCapRight')
     );
@@ -195,6 +524,7 @@
 
   async function handleRegistrationSubmit(e) {
     e.preventDefault();
+    hideAlert();
     const statusMsg = document.getElementById('statusMessage');
     const submitBtn = document.getElementById('submitBtn');
 
@@ -203,15 +533,34 @@
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
+    const otpCode = document.getElementById('emailOtp') ? document.getElementById('emailOtp').value.trim() : '';
 
-    if (password !== confirmPassword) {
-      statusMsg.innerHTML = '<span class="text-danger fw-semibold">Passwords do not match.</span>';
+    // Check email verification
+    if (!isEmailVerified && !otpCode) {
+      showAlert("Please verify your email address using the 6-digit OTP code before registering.", "warning");
+      document.getElementById('otpBox').style.display = 'block';
       return;
     }
 
-    // Ensure at least 1 image captured (frontal required, multi-angle recommended)
+    if (password !== confirmPassword) {
+      showAlert("Passwords do not match.", "danger");
+      return;
+    }
+
+    // Password strength check
+    const hasLen = password.length >= 12;
+    const hasUp = /[A-Z]/.test(password);
+    const hasLow = /[a-z]/.test(password);
+    const hasDig = /[0-9]/.test(password);
+    const hasSpec = /[@#$%^&*!_+\-=\[\]{}|;:,.<>?~]/.test(password);
+    if (!hasLen || !hasUp || !hasLow || !hasDig || !hasSpec) {
+      showAlert("Weak password rejected. Your password must be at least 12 characters and contain uppercase, lowercase, numbers, and special characters.", "danger");
+      return;
+    }
+
+    // Frontal capture check
     if (!capturedImages['frontal']) {
-      statusMsg.innerHTML = '<span class="text-warning fw-semibold">Please capture at least the Frontal face image using the webcam.</span>';
+      showAlert("Please capture at least the Frontal face image using the webcam.", "warning");
       return;
     }
 
@@ -221,7 +570,7 @@
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Extracting Facial Biometrics & Registering...';
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enrolling Biometrics & Registering...';
     statusMsg.innerHTML = '<span class="text-info">Processing face detection and neural embeddings...</span>';
 
     try {
@@ -233,6 +582,8 @@
           candidate_id: candidateId,
           email: email,
           password: password,
+          confirm_password: confirmPassword,
+          otp: otpCode,
           face_images: faceImagesArray
         })
       });
@@ -249,11 +600,13 @@
       } else {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile';
+        showAlert(res.message, "danger");
         statusMsg.innerHTML = `<span class="text-danger fw-bold"><i class="fa-solid fa-circle-exclamation me-1"></i> ${res.message}</span>`;
       }
     } catch (err) {
       submitBtn.disabled = false;
       submitBtn.innerHTML = '<i class="fa-solid fa-check-circle me-2"></i> Register & Save Biometric Profile';
+      showAlert("Network error: " + err.message, "danger");
       statusMsg.innerHTML = `<span class="text-danger">Network error: ${err.message}</span>`;
     }
   }

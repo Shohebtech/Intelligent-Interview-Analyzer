@@ -1,6 +1,8 @@
 """
 Automated Test Suite for Intelligent Interview Analyzer.
-Tests Database, Biometrics, Pose Estimation, Lip Movement, and 5-Second Mismatch Auto-Termination.
+Tests Database, Biometrics, Pose Estimation, Lip Movement, 5-Second Mismatch Auto-Termination,
+and Comprehensive Authentication Improvements (Email Validation, OTP Verification, Strong Password
+Generation/Enforcement, Secure Login, Forgot Password, and Logout).
 """
 import os
 import sys
@@ -20,6 +22,11 @@ from modules.face_recognition import get_face_recognizer
 from modules.head_pose import get_head_pose_estimator
 from modules.lip_movement import get_lip_movement_detector
 from modules.interview_monitor import get_interview_monitor
+from modules.auth_utils import (
+    validate_email_format,
+    evaluate_password_strength,
+    generate_strong_password
+)
 from server import create_app
 
 class TestIntelligentInterviewAnalyzer(unittest.TestCase):
@@ -39,12 +46,11 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertIn("introduce yourself", questions[0]['question_text'].lower())
 
     def test_02_candidate_registration_and_embeddings(self):
-        """Test candidate profile creation and biometric embedding storage."""
+        """Test candidate profile creation with bcrypt and biometric embedding storage."""
         cand_id = "TEST-CAND-001"
-        # Cleanup if exists
         db.delete_candidate(cand_id)
 
-        ok, msg = db.create_candidate(cand_id, "Alex Mercer", "alex@example.com", "Password123!")
+        ok, msg = db.create_candidate(cand_id, "Alex Mercer", "alex@example.com", "Password@123456", is_verified=1)
         self.assertTrue(ok)
 
         # Generate synthetic 128-D normalized embedding vector
@@ -59,7 +65,8 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertEqual(len(loaded_embs[0]), 128)
 
         # Authenticate
-        cand = db.verify_candidate_credentials(cand_id, "Password123!")
+        cand, err = db.verify_candidate_credentials(cand_id, "Password@123456")
+        self.assertIsNone(err)
         self.assertIsNotNone(cand)
         self.assertEqual(cand['full_name'], "Alex Mercer")
 
@@ -87,7 +94,6 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
     def test_04_head_pose_estimation(self):
         """Test 3D head pose Euler angles estimation via solvePnP."""
         pose_estimator = get_head_pose_estimator()
-        # 6 Frontal landmarks: nose, chin, left eye, right eye, left mouth, right mouth
         frontal_pts = [
             (320.0, 240.0), # nose
             (320.0, 360.0), # chin
@@ -104,7 +110,6 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
     def test_05_lip_movement_mar(self):
         """Test Mouth Aspect Ratio (MAR) computation."""
         lip_detector = get_lip_movement_detector()
-        # Simulated closed mouth coordinates (low vertical distance)
         closed_landmarks = {
             'p13': (0.5, 0.60),
             'p14': (0.5, 0.61),
@@ -114,7 +119,6 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         mar_closed = lip_detector.calculate_mar(closed_landmarks, 640, 480)
         self.assertLess(mar_closed, 0.25)
 
-        # Simulated open mouth coordinates (high vertical distance)
         open_landmarks = {
             'p13': (0.5, 0.55),
             'p14': (0.5, 0.67),
@@ -125,14 +129,7 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertGreater(mar_open, 0.40)
 
     def test_06_identity_mismatch_and_5_second_termination(self):
-        """
-        Verify the 5-second countdown and automatic interview termination policy:
-        1. Start session
-        2. Detect mismatch -> starts countdown
-        3. Exceed 5.0 seconds of unverified mismatch -> auto termination on backend
-        4. Session status in DB changes to 'terminated'
-        5. Stop accepting further answers
-        """
+        """Verify 5-second countdown and automatic interview termination policy."""
         session_id = "TEST-SESSION-AUTO-TERM"
         cand_id = "TEST-CAND-001"
         db.create_interview_session(session_id, cand_id)
@@ -140,31 +137,26 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         monitor = get_interview_monitor()
         monitor.register_session(session_id, cand_id)
 
-        # Check initial state
         state = monitor.get_session_state(session_id)
         self.assertEqual(state['status'], 'in_progress')
         self.assertIsNone(state['mismatch_start_time'])
 
-        # Simulate identity mismatch occurring at time T0
+        # Mismatch starts
         t0 = time.time()
         state['mismatch_start_time'] = t0
-
-        # Simulate 2 seconds elapsed: remaining should be ~3.0s, not terminated
         elapsed = 2.0
         remaining = Config.IDENTITY_MISMATCH_GRACE_PERIOD - elapsed
         self.assertGreater(remaining, 0)
 
-        # Simulate 5.1 seconds elapsed without verification
+        # Mismatch exceeds 5.0 seconds
         state['mismatch_start_time'] = time.time() - 5.1
-        # Trigger termination logic
         monitor.terminate_session(session_id, "Identity Mismatch: Candidate identity could not be verified within the permitted 5-second grace period.")
 
-        # Verify backend session status
         updated_session = db.get_interview_session(session_id)
         self.assertEqual(updated_session['status'], 'terminated')
         self.assertIn("Identity Mismatch", updated_session['termination_reason'])
 
-        # Verify response submission is BLOCKED after termination
+        # Response submission is rejected
         with self.app.test_request_context():
             with self.client.session_transaction() as sess:
                 sess['user_type'] = 'candidate'
@@ -180,10 +172,7 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
             self.assertTrue(data.get('terminated'))
 
     def test_07_identity_restoration_cancels_countdown(self):
-        """
-        Verify that if registered candidate returns within 5 seconds,
-        the mismatch countdown is cancelled.
-        """
+        """Verify candidate restoration within 5s cancels countdown."""
         session_id = "TEST-SESSION-RESTORE"
         cand_id = "TEST-CAND-001"
         db.create_interview_session(session_id, cand_id)
@@ -192,11 +181,9 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         monitor.register_session(session_id, cand_id)
         state = monitor.get_session_state(session_id)
 
-        # Mismatch starts
         state['mismatch_start_time'] = time.time() - 2.0
         self.assertIsNotNone(state['mismatch_start_time'])
 
-        # Candidate restored within grace period -> reset countdown
         state['mismatch_start_time'] = None
         self.assertIsNone(state['mismatch_start_time'])
         self.assertEqual(state['status'], 'in_progress')
@@ -204,19 +191,230 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
     def test_08_admin_management_and_candidate_deletion(self):
         """Test admin creation, login, and candidate record deletion."""
         admin_user = f"admin_{int(time.time())}"
-        # Create admin
-        ok, msg = db.create_admin(admin_user, f"{admin_user}@interview.test", "AdminSecret123")
+        ok, msg = db.create_admin(admin_user, f"{admin_user}@interview.test", "AdminSecret123!")
         self.assertTrue(ok)
 
-        # Verify admin
-        admin = db.verify_admin_credentials(admin_user, "AdminSecret123")
+        admin = db.verify_admin_credentials(admin_user, "AdminSecret123!")
         self.assertIsNotNone(admin)
 
-        # Delete candidate
         cand_id = "TEST-CAND-001"
         del_ok, _ = db.delete_candidate(cand_id)
         self.assertTrue(del_ok)
         self.assertIsNone(db.get_candidate(cand_id))
+
+    # =========================================================================
+    # AUTHENTICATION IMPROVEMENT TESTS (SCENARIOS 1 - 10)
+    # =========================================================================
+
+    def test_09_registration_with_valid_email(self):
+        """Scenario 1: Registration with a properly formatted email."""
+        valid_emails = [
+            "candidate.proctor@test.com",
+            "sarah_123@university.edu",
+            "dev+test@company.co.uk"
+        ]
+        for em in valid_emails:
+            is_valid, normalized = validate_email_format(em)
+            self.assertTrue(is_valid, f"Failed for {em}")
+            self.assertEqual(normalized, em.lower())
+
+    def test_10_registration_with_invalid_email(self):
+        """Scenario 2: Rejection of invalid email formats."""
+        invalid_emails = [
+            "",
+            "plainaddress",
+            "@missingusername.com",
+            "username@.com",
+            "username@domain",
+            "username@domain..com",
+            "user name@domain.com"
+        ]
+        for em in invalid_emails:
+            is_valid, msg = validate_email_format(em)
+            self.assertFalse(is_valid, f"Expected invalid for {em}")
+
+        # Test API rejection
+        resp = self.client.post('/send-otp', json={'email': 'invalid-email-format', 'purpose': 'registration'})
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()['success'])
+
+    def test_11_otp_verification_flow(self):
+        """Scenario 3: OTP generation, verification, expiration, and incorrect code."""
+        test_email = "otp_test_user@example.com"
+        purpose = "registration"
+
+        # Generate OTP
+        otp_code = db.create_email_otp(test_email, purpose)
+        self.assertEqual(len(otp_code), 6)
+        self.assertTrue(otp_code.isdigit())
+
+        # Test incorrect code rejection
+        ok, msg = db.verify_email_otp(test_email, "000000", purpose)
+        self.assertFalse(ok)
+        self.assertIn("Incorrect", msg)
+
+        # Test correct code verification
+        ok_verify, msg_verify = db.verify_email_otp(test_email, otp_code, purpose)
+        self.assertTrue(ok_verify)
+
+        # Test code cannot be reused
+        ok_reuse, _ = db.verify_email_otp(test_email, otp_code, purpose)
+        self.assertFalse(ok_reuse)
+
+    def test_12_registration_duplicate_email_rejection(self):
+        """Scenario 4: Prevent registration with an already existing email."""
+        dup_email = "duplicate_check@example.com"
+        cand_id = "DUP-CAND-01"
+        db.delete_candidate(cand_id)
+
+        # Register first candidate
+        ok, _ = db.create_candidate(cand_id, "Original User", dup_email, "StrongPass@12345", is_verified=1)
+        self.assertTrue(ok)
+        self.assertTrue(db.is_email_registered(dup_email))
+
+        # Attempt to send OTP for registration with same email
+        resp = self.client.post('/send-otp', json={'email': dup_email, 'purpose': 'registration'})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("already exists", resp.get_json()['message'])
+
+        # Cleanup
+        db.delete_candidate(cand_id)
+
+    def test_13_weak_password_rejection(self):
+        """Scenario 5: Rejection of weak passwords failing criteria or length < 12."""
+        weak_passwords = [
+            "short",              # < 12 chars
+            "alllowercasepassword1234", # missing uppercase & special
+            "ALLUPPERCASE12345678",      # missing lowercase & special
+            "NoSpecialCharacters1234",  # missing special char
+            "NoDigitsAtAll!@#$%"        # missing numbers
+        ]
+        for pwd in weak_passwords:
+            evaluation = evaluate_password_strength(pwd)
+            self.assertFalse(evaluation['is_valid'], f"Should reject weak password: {pwd}")
+            self.assertIn(evaluation['label'], ['Weak', 'Medium'])
+
+    def test_14_strong_password_generation(self):
+        """Scenario 6: Generate strong random passwords meeting all criteria."""
+        for _ in range(5):
+            pwd = generate_strong_password(length=14)
+            self.assertGreaterEqual(len(pwd), 12)
+            evaluation = evaluate_password_strength(pwd)
+            self.assertTrue(evaluation['is_valid'])
+            self.assertIn(evaluation['label'], ['Strong', 'Very Strong'])
+            self.assertTrue(evaluation['criteria']['min_length'])
+            self.assertTrue(evaluation['criteria']['has_upper'])
+            self.assertTrue(evaluation['criteria']['has_lower'])
+            self.assertTrue(evaluation['criteria']['has_digit'])
+            self.assertTrue(evaluation['criteria']['has_special'])
+
+    def test_15_login_with_correct_credentials(self):
+        """Scenario 7: Successful authentication using registered email and bcrypt hash."""
+        cand_id = "LOGIN-OK-01"
+        email = "login_success@example.com"
+        password = "SecurePassword@2026!"
+        db.delete_candidate(cand_id)
+
+        ok, _ = db.create_candidate(cand_id, "Login Success User", email, password, is_verified=1)
+        self.assertTrue(ok)
+
+        # Authenticate via email
+        cand, err = db.verify_candidate_credentials(email, password)
+        self.assertIsNone(err)
+        self.assertIsNotNone(cand)
+        self.assertEqual(cand['candidate_id'], cand_id)
+
+        # Authenticate via candidate ID
+        cand_by_id, err_id = db.verify_candidate_credentials(cand_id, password)
+        self.assertIsNone(err_id)
+        self.assertIsNotNone(cand_by_id)
+
+        # Test POST /login HTTP flow
+        resp = self.client.post('/login', data={'identifier': email, 'password': password}, follow_redirects=False)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/candidate/dashboard', resp.headers['Location'])
+
+        # Cleanup
+        db.delete_candidate(cand_id)
+
+    def test_16_login_with_incorrect_credentials(self):
+        """Scenario 8: Rejection of incorrect email/candidate ID or wrong password."""
+        cand_id = "LOGIN-FAIL-01"
+        email = "login_fail@example.com"
+        password = "CorrectPass@2026!"
+        db.delete_candidate(cand_id)
+
+        db.create_candidate(cand_id, "Login Fail User", email, password, is_verified=1)
+
+        # Wrong password
+        cand, err = db.verify_candidate_credentials(email, "WrongPassword@999")
+        self.assertEqual(err, "invalid_credentials")
+        self.assertIsNone(cand)
+
+        # Unregistered email
+        cand2, err2 = db.verify_candidate_credentials("nonexistent@example.com", password)
+        self.assertEqual(err2, "invalid_credentials")
+        self.assertIsNone(cand2)
+
+        # HTTP rejection check
+        resp = self.client.post('/login', data={'identifier': email, 'password': 'WrongPassword@999'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Invalid Candidate ID/Email or Password", resp.data)
+
+        # Cleanup
+        db.delete_candidate(cand_id)
+
+    def test_17_forgot_password_functionality(self):
+        """Scenario 9: Forgot password OTP dispatch, code verification, password update, and login."""
+        cand_id = "FORGOT-CAND-01"
+        email = "forgot_test@example.com"
+        old_pass = "OldPassword@12345"
+        new_pass = "NewStrongPassword@2026!"
+        db.delete_candidate(cand_id)
+
+        db.create_candidate(cand_id, "Forgot Password User", email, old_pass, is_verified=1)
+
+        # 1. Request reset OTP
+        otp_code = db.create_email_otp(email, purpose="forgot_password")
+        self.assertEqual(len(otp_code), 6)
+
+        # 2. Submit reset with OTP
+        resp = self.client.post('/forgot-password', json={
+            'email': email,
+            'otp': otp_code,
+            'new_password': new_pass,
+            'confirm_password': new_pass
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()['success'])
+
+        # 3. Old password should fail
+        cand_old, err_old = db.verify_candidate_credentials(email, old_pass)
+        self.assertEqual(err_old, "invalid_credentials")
+
+        # 4. New password succeeds
+        cand_new, err_new = db.verify_candidate_credentials(email, new_pass)
+        self.assertIsNone(err_new)
+        self.assertEqual(cand_new['candidate_id'], cand_id)
+
+        # Cleanup
+        db.delete_candidate(cand_id)
+
+    def test_18_logout_functionality(self):
+        """Scenario 10: Secure session clearance and redirection on logout."""
+        with self.client.session_transaction() as sess:
+            sess['user_type'] = 'candidate'
+            sess['candidate_id'] = 'TEST-LOGOUT-01'
+            sess['full_name'] = 'Logout Tester'
+
+        resp = self.client.get('/logout', follow_redirects=False)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/login', resp.headers['Location'])
+
+        # Session should be empty
+        with self.client.session_transaction() as sess:
+            self.assertNotIn('candidate_id', sess)
+            self.assertNotIn('user_type', sess)
 
 if __name__ == '__main__':
     unittest.main()
