@@ -5,6 +5,22 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 
+# Automatically load .env file if present
+env_file = os.path.join(BASE_DIR, '.env')
+if os.path.exists(env_file):
+    try:
+        with open(env_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k not in os.environ:
+                        os.environ[k] = v
+    except Exception as e:
+        print(f"Notice loading .env: {e}")
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'interview-analyzer-super-secret-key-2026')
     DATABASE = os.path.join(INSTANCE_DIR, 'interview_analyzer.db')
@@ -14,7 +30,7 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
     
-    # Email / SMTP Configuration (set via environment variables)
+    # Email / SMTP Configuration (set via environment variables or .env)
     SMTP_HOST = os.environ.get('SMTP_HOST', '')
     SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
     SMTP_USER = os.environ.get('SMTP_USER', '')

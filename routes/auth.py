@@ -67,11 +67,20 @@ def send_otp():
     if not sent:
         return jsonify({'success': False, 'message': msg}), 500
 
-    return jsonify({
+    has_smtp = bool(Config.SMTP_HOST and Config.SMTP_USER and Config.SMTP_PASS)
+    response_payload = {
         'success': True,
-        'message': f'A 6-digit verification code has been sent to {email}.',
+        'smtp_configured': has_smtp,
         'cooldown_seconds': Config.OTP_RESEND_COOLDOWN_SECONDS
-    })
+    }
+
+    if has_smtp:
+        response_payload['message'] = f'A 6-digit verification code has been sent to {email}. Please check your inbox.'
+    else:
+        response_payload['message'] = f'Verification code generated! [Dev Mode Code: {otp_code}]'
+        response_payload['dev_otp'] = otp_code
+
+    return jsonify(response_payload)
 
 @auth_bp.route('/verify-otp', methods=['POST'])
 def verify_otp():
