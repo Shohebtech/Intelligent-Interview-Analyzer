@@ -10,7 +10,7 @@
         <div class="text-center mb-4">
           <h2 class="fw-bold mb-2">Candidate Biometric Registration</h2>
           <p class="text-secondary">
-            Register your profile, verify your email with OTP, and capture multi-angle facial embeddings via your webcam.
+            Register your profile and capture multi-angle facial embeddings via your webcam to enable real-time interview verification.
           </p>
         </div>
 
@@ -36,38 +36,14 @@
                   <div class="form-text text-muted small">Unique ID for your interview credentials.</div>
                 </div>
 
-                <!-- Email Address with OTP Verification -->
+                <!-- Email Address -->
                 <div class="mb-3">
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label small fw-semibold mb-0">Email Address <span class="text-danger">*</span></label>
-                    <span id="emailVerifyBadge" class="badge bg-secondary" style="font-size: 0.72rem;">
-                      <i class="fa-solid fa-envelope-circle-check me-1"></i> Verification Pending
-                    </span>
-                  </div>
+                  <label class="form-label small fw-semibold">Email Address <span class="text-danger">*</span></label>
                   <div class="input-group">
-                    <input type="email" class="form-control" id="email" placeholder="sarah.jenkins@example.com" required oninput="handleEmailChange()">
-                    <button type="button" class="btn btn-outline-info" id="btnSendEmailOtp" onclick="sendRegistrationOtp()">
-                      <i class="fa-solid fa-paper-plane me-1"></i> Send OTP
-                    </button>
+                    <span class="input-group-text bg-dark border-secondary text-secondary"><i class="fa-solid fa-envelope"></i></span>
+                    <input type="email" class="form-control" id="email" placeholder="candidate@gmail.com" required>
                   </div>
-                  <div id="otpStatusText" class="form-text small mt-1"></div>
-                </div>
-
-                <!-- Inline OTP Verification Box -->
-                <div class="mb-3 p-3 rounded-2" id="otpBox" style="display: none; background: rgba(11, 19, 43, 0.7); border: 1px dashed #38bdf8;">
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label small fw-semibold text-info mb-0">Enter 6-Digit Email Code <span class="text-danger">*</span></label>
-                    <button type="button" class="btn btn-link btn-sm text-info p-0 text-decoration-none small" id="btnResendOtp" onclick="sendRegistrationOtp()" style="display: none;">
-                      Resend Code
-                    </button>
-                  </div>
-                  <div class="input-group mb-1">
-                    <input type="text" class="form-control font-monospace text-center fs-6" id="emailOtp" placeholder="123456" maxlength="6" pattern="[0-9]{6}">
-                    <button type="button" class="btn btn-info text-dark fw-bold px-3" id="btnVerifyCode" onclick="verifyRegistrationOtp()">
-                      Verify
-                    </button>
-                  </div>
-                  <div id="otpVerifyFeedback" class="small mt-1"></div>
+                  <div class="form-text text-muted small">Valid email or Gmail address (e.g. candidate@gmail.com).</div>
                 </div>
 
                 <!-- Password with Strong Generator & Strength Indicator -->
@@ -211,9 +187,6 @@
 <script>
   let webcamStream = null;
   const capturedImages = {}; // angle -> base64 string
-  let isEmailVerified = false;
-  let resendTimer = null;
-  let cooldownSeconds = 0;
 
   function showAlert(msg, type='danger') {
     const box = document.getElementById('formAlertBox');
@@ -225,17 +198,6 @@
 
   function hideAlert() {
     document.getElementById('formAlertBox').classList.add('d-none');
-  }
-
-  function handleEmailChange() {
-    if (isEmailVerified) {
-      isEmailVerified = false;
-      const badge = document.getElementById('emailVerifyBadge');
-      badge.className = 'badge bg-secondary';
-      badge.innerHTML = '<i class="fa-solid fa-envelope-circle-check me-1"></i> Verification Pending';
-      document.getElementById('otpStatusText').innerHTML = '';
-      document.getElementById('otpBox').style.display = 'none';
-    }
   }
 
   function togglePasswordVisibility(fieldId, btn) {
@@ -367,121 +329,6 @@
     }
   }
 
-  async function sendRegistrationOtp() {
-    const email = document.getElementById('email').value.trim();
-    const btn = document.getElementById('btnSendEmailOtp');
-    const statusTxt = document.getElementById('otpStatusText');
-    hideAlert();
-
-    if (!email || !email.includes('@')) {
-      showAlert("Please enter a valid email address.", "danger");
-      return;
-    }
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Sending...';
-    statusTxt.innerHTML = '<span class="text-info">Sending verification code to your email...</span>';
-
-    try {
-      const resp = await fetch('{{ url_for("auth.send_otp") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, purpose: 'registration' })
-      });
-      const data = await resp.json();
-
-      if (data.success) {
-        document.getElementById('otpBox').style.display = 'block';
-        if (data.dev_otp) {
-          document.getElementById('emailOtp').value = data.dev_otp;
-          statusTxt.innerHTML = `
-            <div class="alert alert-info py-2 px-3 small mt-2 mb-1">
-              <i class="fa-solid fa-circle-info me-1"></i> <strong>Local Dev Mode:</strong> 
-              SMTP not configured. Your OTP is: <span class="badge bg-primary fs-6 font-monospace px-2 py-1">${data.dev_otp}</span> 
-              <em>(Auto-filled below)</em>.
-              <div class="text-secondary mt-1" style="font-size: 0.72rem;">To receive real emails in your Gmail inbox, add SMTP credentials in <code>.env</code>.</div>
-            </div>
-          `;
-        } else {
-          statusTxt.innerHTML = `<span class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i> ${data.message}</span>`;
-        }
-        startCooldownTimer(data.cooldown_seconds || 60);
-      } else {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Send OTP';
-        showAlert(data.message, "danger");
-        statusTxt.innerHTML = `<span class="text-danger">${data.message}</span>`;
-        if (data.cooldown && data.remaining_seconds) {
-          startCooldownTimer(data.remaining_seconds);
-        }
-      }
-    } catch (err) {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Send OTP';
-      showAlert("Network error: " + err.message, "danger");
-    }
-  }
-
-  function startCooldownTimer(seconds) {
-    cooldownSeconds = seconds;
-    const btn = document.getElementById('btnSendEmailOtp');
-    const resendBtn = document.getElementById('btnResendOtp');
-    btn.disabled = true;
-    resendBtn.style.display = 'inline-block';
-    resendBtn.disabled = true;
-
-    if (resendTimer) clearInterval(resendTimer);
-    resendTimer = setInterval(() => {
-      cooldownSeconds--;
-      btn.innerText = `Resend (${cooldownSeconds}s)`;
-      resendBtn.innerText = `Resend (${cooldownSeconds}s)`;
-      if (cooldownSeconds <= 0) {
-        clearInterval(resendTimer);
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Resend OTP';
-        resendBtn.disabled = false;
-        resendBtn.innerText = 'Resend Code';
-      }
-    }, 1000);
-  }
-
-  async function verifyRegistrationOtp() {
-    const email = document.getElementById('email').value.trim();
-    const otp = document.getElementById('emailOtp').value.trim();
-    const feedback = document.getElementById('otpVerifyFeedback');
-    const badge = document.getElementById('emailVerifyBadge');
-
-    if (!otp || otp.length !== 6) {
-      feedback.innerHTML = '<span class="text-danger">Please enter the 6-digit code.</span>';
-      return;
-    }
-
-    feedback.innerHTML = '<span class="text-info"><i class="fa-solid fa-spinner fa-spin me-1"></i> Verifying...</span>';
-
-    try {
-      const resp = await fetch('{{ url_for("auth.verify_otp") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, otp: otp, purpose: 'registration' })
-      });
-      const data = await resp.json();
-
-      if (data.success) {
-        isEmailVerified = true;
-        badge.className = 'badge bg-success';
-        badge.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i> Email Verified';
-        feedback.innerHTML = '<span class="text-success fw-bold"><i class="fa-solid fa-circle-check me-1"></i> Email verified successfully!</span>';
-        document.getElementById('emailOtp').disabled = true;
-        document.getElementById('btnVerifyCode').disabled = true;
-        document.getElementById('btnSendEmailOtp').disabled = true;
-      } else {
-        feedback.innerHTML = `<span class="text-danger fw-semibold"><i class="fa-solid fa-circle-xmark me-1"></i> ${data.message}</span>`;
-      }
-    } catch (err) {
-      feedback.innerHTML = `<span class="text-danger">Verification error: ${err.message}</span>`;
-    }
-  }
-
   // --- Webcam Integration ---
   async function startWebcam() {
     const video = document.getElementById('regVideo');
@@ -545,12 +392,11 @@
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
-    const otpCode = document.getElementById('emailOtp') ? document.getElementById('emailOtp').value.trim() : '';
 
-    // Check email verification
-    if (!isEmailVerified && !otpCode) {
-      showAlert("Please verify your email address using the 6-digit OTP code before registering.", "warning");
-      document.getElementById('otpBox').style.display = 'block';
+    // Validate email address format (accepts valid Gmail and standard emails)
+    const emailRegex = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+    if (!email || !emailRegex.test(email)) {
+      showAlert("Please enter a valid email address (e.g. candidate@gmail.com).", "danger");
       return;
     }
 
@@ -595,7 +441,6 @@
           email: email,
           password: password,
           confirm_password: confirmPassword,
-          otp: otpCode,
           face_images: faceImagesArray
         })
       });

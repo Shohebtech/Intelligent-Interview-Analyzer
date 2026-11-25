@@ -203,10 +203,37 @@
           </h5>
         </div>
 
+        <!-- Live Candidate Spoken Response Display (Immediately Below Question) -->
+        <div class="p-3 rounded-3 mb-3" style="background: rgba(11, 19, 43, 0.85); border: 1px solid rgba(99, 102, 241, 0.35); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25 px-2 py-1">
+                <i class="fa-solid fa-microphone-lines text-danger me-1"></i> Live Spoken Response
+              </span>
+              <span id="speechStatusIndicator" class="small text-success" style="font-size: 0.78rem;">
+                <i class="fa-solid fa-circle-notch fa-spin text-info me-1"></i> Initializing microphone...
+              </span>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" onclick="clearCurrentSpeech()" title="Clear Spoken Response for this question">
+                <i class="fa-solid fa-rotate-left me-1"></i> Clear Speech
+              </button>
+            </div>
+          </div>
+          
+          <div id="liveSpeechContainer" class="p-3 rounded-2 text-white" style="min-height: 85px; max-height: 155px; overflow-y: auto; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--navy-border); font-size: 0.95rem; line-height: 1.6;">
+            <span id="speechPlaceholder" class="text-secondary fst-italic">
+              <i class="fa-solid fa-wave-square me-1"></i> Speak into your microphone. Your spoken response will dynamically transcribe and appear live right here under this question...
+            </span>
+            <span id="speechFinalText" class="text-white"></span>
+            <span id="speechInterimText" class="text-info opacity-75"></span>
+          </div>
+        </div>
+
         <!-- Candidate Response Input -->
         <div class="flex-grow-1 mb-3">
-          <label class="form-label small fw-semibold text-secondary">Your Technical / Behavioral Response:</label>
-          <textarea class="form-control h-100" id="answerInput" rows="7" placeholder="Type your answer clearly here. Speak naturally towards the webcam while responding..."></textarea>
+          <label class="form-label small fw-semibold text-secondary">Your Technical / Behavioral Response (Text / Edited Transcript):</label>
+          <textarea class="form-control h-100" id="answerInput" rows="5" placeholder="Type or review your answer clearly here. Speak naturally towards the webcam while responding..."></textarea>
         </div>
 
         <!-- Action Footer -->
@@ -242,6 +269,7 @@
   const questionsData = {{ questions|tojson }};
   const answeredQids = new Set({{ answered_qids|tojson }});
   let currentQIndex = 0;
+  const questionSpeechData = {};
 
   // Session duration timer
   const startTime = Date.now();
@@ -258,19 +286,185 @@
   let monitorInterval = null;
   let isSendingFrame = false;
 
+  // Speech Recognition state
+  let recognition = null;
+  let isRecognitionActive = false;
+  let shouldRestartRecognition = true;
+
+  function initSpeechRecognition() {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const statusInd = document.getElementById('speechStatusIndicator');
+
+    if (!SpeechRec) {
+      if (statusInd) {
+        statusInd.className = "small text-secondary";
+        statusInd.innerHTML = '<i class="fa-solid fa-circle-info me-1"></i> Speech API not supported in this browser; please type responses below.';
+      }
+      return;
+    }
+
+    try {
+      recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        isRecognitionActive = true;
+        if (statusInd) {
+          statusInd.className = "small text-success";
+          statusInd.innerHTML = '<i class="fa-solid fa-microphone me-1"></i> Microphone Active (Listening...)';
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+          if (statusInd) {
+            statusInd.className = "small text-warning";
+            statusInd.innerHTML = '<i class="fa-solid fa-microphone-slash me-1"></i> Microphone permission required';
+          }
+        } else if (event.error === 'no-speech') {
+          // Normal silence, keep listening
+        } else {
+          if (statusInd) {
+            statusInd.className = "small text-muted";
+            statusInd.innerHTML = `<i class="fa-solid fa-microphone me-1"></i> Status: ${event.error}`;
+          }
+        }
+      };
+
+      recognition.onend = () => {
+        isRecognitionActive = false;
+        // Keep listening continuously while the session is active
+        if (shouldRestartRecognition && webcamStream && webcamStream.active) {
+          try {
+            recognition.start();
+          } catch (e) {
+            // Already started or busy
+          }
+        }
+      };
+
+      recognition.onresult = (event) => {
+        if (!questionsData || questionsData.length === 0) return;
+        const q = questionsData[currentQIndex];
+        if (!q) return;
+
+        if (!questionSpeechData[q.id]) {
+          questionSpeechData[q.id] = { final: '', interim: '' };
+        }
+
+        let interimStr = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            questionSpeechData[q.id].final += (questionSpeechData[q.id].final ? ' ' : '') + transcript.trim();
+          } else {
+            interimStr += transcript;
+          }
+        }
+        questionSpeechData[q.id].interim = interimStr;
+        renderCurrentSpeechUI();
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn("Speech recognition start error:", err);
+      if (statusInd) {
+        statusInd.className = "small text-secondary";
+        statusInd.innerHTML = '<i class="fa-solid fa-circle-info me-1"></i> Speech service unavailable; type answer directly.';
+      }
+    }
+  }
+
+  function renderCurrentSpeechUI() {
+    if (!questionsData || questionsData.length === 0) return;
+    const q = questionsData[currentQIndex];
+    if (!q) return;
+
+    const data = questionSpeechData[q.id] || { final: '', interim: '' };
+    const placeholder = document.getElementById('speechPlaceholder');
+    const finalEl = document.getElementById('speechFinalText');
+    const interimEl = document.getElementById('speechInterimText');
+    const container = document.getElementById('liveSpeechContainer');
+    const answerInput = document.getElementById('answerInput');
+
+    if (finalEl) finalEl.textContent = data.final;
+    if (interimEl) interimEl.textContent = data.interim ? (' ' + data.interim) : '';
+
+    const hasContent = (data.final && data.final.trim().length > 0) || (data.interim && data.interim.trim().length > 0);
+    if (placeholder) {
+      if (hasContent) {
+        placeholder.classList.add('d-none');
+      } else {
+        placeholder.classList.remove('d-none');
+      }
+    }
+
+    // Keep answer input synchronized with speech transcript
+    if (answerInput && hasContent) {
+      const fullText = (data.final + (data.interim ? ' ' + data.interim : '')).trim();
+      if (!answerInput.value || answerInput.dataset.autoFilled === "true" || answerInput.dataset.forQ === String(q.id)) {
+        answerInput.value = fullText;
+        answerInput.dataset.autoFilled = "true";
+        answerInput.dataset.forQ = String(q.id);
+      }
+    }
+
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  function clearCurrentSpeech() {
+    if (!questionsData || questionsData.length === 0) return;
+    const q = questionsData[currentQIndex];
+    if (!q) return;
+
+    questionSpeechData[q.id] = { final: '', interim: '' };
+    const answerInput = document.getElementById('answerInput');
+    if (answerInput && answerInput.dataset.forQ === String(q.id)) {
+      answerInput.value = '';
+    }
+    renderCurrentSpeechUI();
+  }
+
   async function initWebcam() {
     const video = document.getElementById('liveVideo');
     const onlineBadge = document.getElementById('cameraOnlineBadge');
     try {
-      webcamStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: false
-      });
+      // Request video with microphone audio if available
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: true
+        });
+      } catch (audioErr) {
+        // Fallback to video only if microphone is unavailable or denied
+        console.warn("Audio getUserMedia failed, falling back to video only:", audioErr);
+        webcamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false
+        });
+      }
+
       video.srcObject = webcamStream;
       onlineBadge.innerHTML = '<i class="fa-solid fa-video text-success me-1"></i> Camera Active';
       onlineBadge.className = "webcam-badge text-success";
 
       // Start periodic frame monitoring (every 500ms)
+      monitorInterval = setInterval(captureAndSendFrame, 500);
+
+      // Initialize live speech transcription
+      initSpeechRecognition();
+    } catch (err) {
+      console.error("Webcam init error:", err);
+      onlineBadge.innerHTML = '<i class="fa-solid fa-video-slash text-danger me-1"></i> Camera Disconnected';
+      onlineBadge.className = "webcam-badge text-danger";
+      showGeneralAlert("Camera error: " + err.message + ". Please reconnect webcam immediately.", "danger");
+    }
+  }
       monitorInterval = setInterval(captureAndSendFrame, 500);
     } catch (err) {
       console.error("Webcam init error:", err);
@@ -420,7 +614,18 @@
     document.getElementById('currentQNum').innerText = currentQIndex + 1;
     document.getElementById('questionCategory').innerText = q.category || 'General';
     document.getElementById('questionText').innerText = q.question_text;
-    document.getElementById('answerInput').value = ""; // fresh response
+
+    // Render speech display for the active question
+    renderCurrentSpeechUI();
+
+    // Restore or sync answer textarea for current question
+    const answerInput = document.getElementById('answerInput');
+    const existingSpeech = (questionSpeechData[q.id]?.final || '');
+    if (answerInput.dataset.forQ !== String(q.id)) {
+      answerInput.value = existingSpeech;
+      answerInput.dataset.forQ = String(q.id);
+      answerInput.dataset.autoFilled = existingSpeech ? "true" : "false";
+    }
 
     // Update pagination buttons
     document.querySelectorAll('.q-nav-btn').forEach((btn, idx) => {
@@ -496,6 +701,10 @@
       });
       const res = await resp.json();
       if (res.success) {
+        shouldRestartRecognition = false;
+        if (recognition) {
+          try { recognition.stop(); } catch(e){}
+        }
         if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
         window.location.href = res.redirect_url;
       } else {
@@ -508,6 +717,10 @@
 
   window.addEventListener('DOMContentLoaded', initWebcam);
   window.addEventListener('beforeunload', () => {
+    shouldRestartRecognition = false;
+    if (recognition) {
+      try { recognition.stop(); } catch(e){}
+    }
     if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
     if (monitorInterval) clearInterval(monitorInterval);
   });

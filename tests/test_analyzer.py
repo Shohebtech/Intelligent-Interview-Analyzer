@@ -207,8 +207,11 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
     # =========================================================================
 
     def test_09_registration_with_valid_email(self):
-        """Scenario 1: Registration with a properly formatted email."""
+        """Scenario 1: Registration with properly formatted emails including Gmail addresses."""
         valid_emails = [
+            "candidate@gmail.com",
+            "alex.mercer.interview@gmail.com",
+            "user123@gmail.com",
             "candidate.proctor@test.com",
             "sarah_123@university.edu",
             "dev+test@company.co.uk"
@@ -415,6 +418,62 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         with self.client.session_transaction() as sess:
             self.assertNotIn('candidate_id', sess)
             self.assertNotIn('user_type', sess)
+
+    def test_19_registration_accepts_gmail_and_no_otp_required(self):
+        """Scenario 11: Candidate registration accepts valid @gmail.com without requiring email OTP."""
+        cand_id = "GMAIL-CAND-01"
+        email = "candidate@gmail.com"
+        db.delete_candidate(cand_id)
+
+        # 1. Direct registration endpoint call without any 'otp' parameter
+        resp = self.client.post('/register', json={
+            'full_name': 'Gmail Candidate',
+            'candidate_id': cand_id,
+            'email': email,
+            'password': 'StrongPassword@2026!',
+            'confirm_password': 'StrongPassword@2026!',
+            'face_images': [] # Test biometric validation triggers before any OTP check
+        })
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 400)
+        # Verify it requires face biometrics and does NOT request OTP
+        self.assertFalse(data.get('requires_otp', False))
+        self.assertIn("Face registration requires", data['message'])
+
+        # 2. Database candidate creation with @gmail.com and is_verified=1
+        ok, msg = db.create_candidate(cand_id, "Gmail Candidate", email, "StrongPassword@2026!", is_verified=1)
+        self.assertTrue(ok)
+
+        # 3. Successful login immediately without email OTP verification
+        cand, err = db.verify_candidate_credentials(email, "StrongPassword@2026!")
+        self.assertIsNone(err)
+        self.assertIsNotNone(cand)
+        self.assertEqual(cand['email'], email)
+
+        # Cleanup
+        db.delete_candidate(cand_id)
+
+    def test_20_interview_template_contains_live_speech_below_question(self):
+        """Scenario 12: Verify interview UI contains live spoken response below question."""
+        with open(os.path.join(BASE_DIR, 'templates', 'interview.html'), 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Check for live spoken response container elements
+        self.assertIn('Live Spoken Response', content)
+        self.assertIn('id="liveSpeechContainer"', content)
+        self.assertIn('id="speechStatusIndicator"', content)
+        self.assertIn('id="speechPlaceholder"', content)
+        self.assertIn('id="speechFinalText"', content)
+        self.assertIn('id="speechInterimText"', content)
+        self.assertIn('initSpeechRecognition', content)
+        self.assertIn('renderCurrentSpeechUI', content)
+
+        # Verify live speech container appears immediately after questionText and before answerInput
+        q_pos = content.find('id="questionText"')
+        speech_pos = content.find('id="liveSpeechContainer"')
+        ans_pos = content.find('id="answerInput"')
+        self.assertGreater(speech_pos, q_pos, "Speech container should appear after question text")
+        self.assertLess(speech_pos, ans_pos, "Speech container should appear before answer input")
 
 if __name__ == '__main__':
     unittest.main()

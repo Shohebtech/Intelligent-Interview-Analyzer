@@ -6,12 +6,12 @@
 
 ## Key Features
 
-1. **Email ID Authentication & Verification**:
-   - RFC 5322 format validation during registration.
+1. **Email ID Authentication & Registration**:
+   - RFC 5322 format validation during registration with seamless acceptance of valid Gmail addresses (e.g., `candidate@gmail.com`).
    - Duplicate email registration prevention with user-friendly error messages.
-   - Mandatory email verification via 6-digit OTP dispatched to candidate's email.
-   - 60-second cooldown timer for Resend OTP.
-   - Only verified email addresses are permitted to log in.
+   - Streamlined candidate registration without mandatory email OTP barrier.
+   - Secure login via registered email address or Candidate ID with bcrypt hashing.
+   - Self-service password recovery flow with secure 6-digit OTP verification.
 
 2. **Strong Password Generation & Enforcement**:
    - Suggested strong passwords via one-click **"Suggest Strong"** generator (cryptographically random 14-character passwords containing uppercase, lowercase, numbers, and special characters).
@@ -54,7 +54,12 @@
      $$\text{MAR} = \frac{\|p_{13} - p_{14}\|}{\|p_{61} - p_{291}\|}$$
    - Rolling variance analysis monitors observable speaking activity and states: *"Mouth Movement Detected"*, *"Mouth Closed"*, and *"Lip Movement Monitoring Active"*.
 
-9. **Server-Side Termination Enforcement**:
+9. **Live Speech Transcription & Question Display**:
+   - Interview questions clearly displayed at the top of the interview interface.
+   - Immediately below each question, a dedicated live candidate spoken response container dynamically displays transcribed speech as the candidate responds through the microphone.
+   - Associated dynamically per question with auto-synchronization into the answer submission field.
+
+10. **Server-Side Termination Enforcement**:
    - Termination logic is enforced in Python on the backend.
    - Once terminated, session status is updated to `'terminated'` in SQLite, the termination reason and timestamp are locked, and answer submissions are rejected (HTTP 403).
 

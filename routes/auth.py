@@ -170,22 +170,7 @@ def register():
                 'message': f"Weak password rejected: {', '.join(pw_eval['errors'])}"
             }), 400
 
-        # 4. Mandatory Email OTP Verification
-        verified_map = session.get('verified_emails', {})
-        session_verified = verified_map.get(f"{email}:registration", False)
-
-        if not session_verified:
-            if not otp_code:
-                return jsonify({
-                    'success': False,
-                    'requires_otp': True,
-                    'message': 'Email verification is mandatory. Please enter the 6-digit code sent to your email.'
-                }), 400
-            otp_ok, otp_msg = db.verify_email_otp(email, otp_code, purpose='registration')
-            if not otp_ok:
-                return jsonify({'success': False, 'message': f"Email verification failed: {otp_msg}"}), 400
-
-        # 5. Face Biometric Capture Validation
+        # 4. Face Biometric Capture Validation
         if not face_images or len(face_images) < 1:
             return jsonify({
                 'success': False, 
@@ -237,14 +222,9 @@ def register():
         if not saved:
             return jsonify({'success': False, 'message': 'Failed to save facial biometric data.'}), 500
 
-        # Clear verified email session cache
-        if f"{email}:registration" in verified_map:
-            del verified_map[f"{email}:registration"]
-            session['verified_emails'] = verified_map
-
         return jsonify({
             'success': True,
-            'message': 'Registration successful and email verified! You may now log in to proceed.',
+            'message': 'Registration successful! You may now log in to proceed with your interview.',
             'redirect': url_for('auth.login')
         })
 
