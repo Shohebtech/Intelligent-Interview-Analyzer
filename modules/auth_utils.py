@@ -15,12 +15,34 @@ from email.mime.multipart import MIMEMultipart
 from config import Config
 
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
+GMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@gmail\.com$', re.IGNORECASE)
 
-def validate_email_format(email):
+def validate_gmail_address(email):
     """
-    Validate email address format.
+    Strictly validate that an email is a properly formatted Gmail address ending with @gmail.com.
     Returns (is_valid: bool, normalized_email_or_error: str)
     """
+    if not email or not isinstance(email, str):
+        return False, "Please enter a valid Gmail address ending with @gmail.com."
+    
+    email = email.strip()
+    if len(email) > 254 or '..' in email:
+        return False, "Please enter a valid Gmail address ending with @gmail.com."
+        
+    if not GMAIL_REGEX.match(email):
+        return False, "Please enter a valid Gmail address ending with @gmail.com."
+        
+    return True, email.lower()
+
+def validate_email_format(email, require_gmail=False):
+    """
+    Validate email address format.
+    If require_gmail=True, strictly validates for @gmail.com.
+    Returns (is_valid: bool, normalized_email_or_error: str)
+    """
+    if require_gmail:
+        return validate_gmail_address(email)
+
     if not email or not isinstance(email, str):
         return False, "Email address is required."
     

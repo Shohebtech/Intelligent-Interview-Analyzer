@@ -9,6 +9,7 @@ from modules.face_detection import get_face_detector
 from modules.face_recognition import get_face_recognizer
 from modules.auth_utils import (
     validate_email_format,
+    validate_gmail_address,
     evaluate_password_strength,
     generate_strong_password,
     send_otp_email
@@ -129,7 +130,7 @@ def check_password_endpoint():
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """Candidate registration page and endpoint with mandatory email OTP & strong password."""
+    """Candidate registration page and endpoint with strict Gmail validation and strong password."""
     if request.method == 'GET':
         return render_template('register.html')
 
@@ -141,15 +142,14 @@ def register():
         raw_email = data.get('email', '').strip()
         password = data.get('password', '')
         confirm_password = data.get('confirm_password', '')
-        otp_code = data.get('otp', '').strip()
         face_images = data.get('face_images', [])
 
         # 1. Basic Fields Validation
         if not candidate_id or not full_name or not raw_email or not password:
             return jsonify({'success': False, 'message': 'All registration fields are required.'}), 400
 
-        # 2. Email Validation
-        is_valid_email, email = validate_email_format(raw_email)
+        # 2. Strict Gmail Address Validation
+        is_valid_email, email = validate_gmail_address(raw_email)
         if not is_valid_email:
             return jsonify({'success': False, 'message': email}), 400
 

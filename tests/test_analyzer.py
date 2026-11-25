@@ -24,6 +24,7 @@ from modules.lip_movement import get_lip_movement_detector
 from modules.interview_monitor import get_interview_monitor
 from modules.auth_utils import (
     validate_email_format,
+    validate_gmail_address,
     evaluate_password_strength,
     generate_strong_password
 )
@@ -474,6 +475,62 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         ans_pos = content.find('id="answerInput"')
         self.assertGreater(speech_pos, q_pos, "Speech container should appear after question text")
         self.assertLess(speech_pos, ans_pos, "Speech container should appear before answer input")
+
+    def test_21_strict_gmail_validation_rules(self):
+        """Scenario 13: Strict Gmail domain validation rules for candidate registration."""
+        expected_err = "Please enter a valid Gmail address ending with @gmail.com."
+
+        # 1. Accept valid Gmail addresses
+        valid_cases = [
+            "candidate@gmail.com",
+            "CANDIDATE@GMAIL.COM",
+            "first.last@gmail.com",
+            "user_123+tag@gmail.com"
+        ]
+        for email in valid_cases:
+            is_valid, normalized = validate_gmail_address(email)
+            self.assertTrue(is_valid, f"Expected {email} to be accepted as valid Gmail")
+            self.assertTrue(normalized.endswith("@gmail.com"))
+
+        # 2. Reject all specified invalid cases
+        invalid_cases = [
+            "sss@gmail",
+            "sss@",
+            "sssgmail.com",
+            "candidate@yahoo.com",
+            "candidate@hotmail.com",
+            "candidate@gmail.co",
+            "candidate@gmail.com123",
+            "",
+            "   ",
+            "candidate..test@gmail.com",
+            "@gmail.com"
+        ]
+        for email in invalid_cases:
+            is_valid, err_msg = validate_gmail_address(email)
+            self.assertFalse(is_valid, f"Expected {email} to be rejected")
+            self.assertEqual(err_msg, expected_err)
+
+        # 3. Test API rejection via POST /register for each invalid email
+        for email in ["sss@gmail", "candidate@yahoo.com", "candidate@gmail.co", "candidate@gmail.com123"]:
+            resp = self.client.post('/register', json={
+                'full_name': 'Test Candidate',
+                'candidate_id': f'CAND-{int(time.time()*1000)%100000}',
+                'email': email,
+                'password': 'StrongPassword@2026!',
+                'confirm_password': 'StrongPassword@2026!',
+                'face_images': []
+            })
+            self.assertEqual(resp.status_code, 400)
+            data = resp.get_json()
+            self.assertFalse(data['success'])
+            self.assertEqual(data['message'], expected_err)
+
+        # 4. Verify frontend template enforces the exact error message
+        with open(os.path.join(BASE_DIR, 'templates', 'register.html'), 'r', encoding='utf-8') as f:
+            reg_html = f.read()
+        self.assertIn(expected_err, reg_html)
+        self.assertIn("@gmail\\.com", reg_html)
 
 if __name__ == '__main__':
     unittest.main()
