@@ -104,19 +104,31 @@
         </div>
 
         <!-- Video Viewport -->
-        <div class="webcam-container flex-grow-1" style="min-height: 320px;">
+        <div class="webcam-container flex-grow-1 position-relative" style="min-height: 320px;">
           <video id="liveVideo" class="webcam-video" autoplay playsinline muted></video>
           <canvas id="liveCanvas" class="d-none"></canvas>
           <div class="face-guide-box" id="guideBox"></div>
 
           <!-- Video Overlays -->
           <div class="webcam-overlay">
-            <span class="webcam-badge" id="cameraOnlineBadge">
-              <i class="fa-solid fa-video text-success me-1"></i> Camera Active
+            <span class="webcam-badge text-info" id="cameraOnlineBadge">
+              <i class="fa-solid fa-circle-notch fa-spin me-1"></i> Initializing Camera...
             </span>
             <span class="webcam-badge text-info" id="simScoreBadge">
               Similarity: --
             </span>
+          </div>
+
+          <!-- Camera Error / Permission Overlay with Retry Button -->
+          <div id="cameraErrorOverlay" class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-center align-items-center p-3 text-center" style="background: rgba(15, 23, 42, 0.94); z-index: 10; border-radius: 0.5rem;">
+            <i class="fa-solid fa-video-slash text-danger fs-1 mb-2"></i>
+            <h6 class="text-white fw-bold mb-1" id="cameraErrorTitle">Camera Access Required</h6>
+            <p class="text-secondary small mb-3" id="cameraErrorMessage" style="max-width: 290px; font-size: 0.82rem;">
+              Camera access is required for proctoring. Please allow camera access in browser settings.
+            </p>
+            <button type="button" class="btn btn-outline-info btn-sm px-3" onclick="retryCamera()">
+              <i class="fa-solid fa-rotate me-1"></i> Retry Camera
+            </button>
           </div>
         </div>
 
@@ -205,14 +217,17 @@
 
         <!-- Live Candidate Spoken Response Display (Immediately Below Question) -->
         <div class="p-3 rounded-3 mb-3" style="background: rgba(11, 19, 43, 0.85); border: 1px solid rgba(99, 102, 241, 0.35); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <div class="d-flex align-items-center gap-2">
+          <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="badge bg-primary bg-opacity-25 text-info border border-info border-opacity-25 px-2 py-1">
                 <i class="fa-solid fa-microphone-lines text-danger me-1"></i> Live Spoken Response
               </span>
-              <span id="speechStatusIndicator" class="small text-success" style="font-size: 0.78rem;">
-                <i class="fa-solid fa-circle-notch fa-spin text-info me-1"></i> Initializing microphone...
+              <span id="speechStatusIndicator" class="small text-info" style="font-size: 0.78rem;">
+                <i class="fa-solid fa-circle-notch fa-spin me-1"></i> Initializing...
               </span>
+              <button type="button" id="retryMicBtn" class="btn btn-outline-warning btn-sm py-0 px-2 d-none" style="font-size: 0.72rem;" onclick="retryMicrophone()">
+                <i class="fa-solid fa-rotate me-1"></i> Retry
+              </button>
             </div>
             <div class="d-flex gap-2">
               <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" onclick="clearCurrentSpeech()" title="Clear Spoken Response for this question">
@@ -281,26 +296,225 @@
     document.getElementById('sessionTimerDisplay').innerText = `${hrs}:${mins}:${secs}`;
   }, 1000);
 
-  // Webcam stream & monitor loop
+  // Independent Media Streams & Interval Management
   let webcamStream = null;
+  let micStream = null;
   let monitorInterval = null;
   let isSendingFrame = false;
+  let isCameraInitializing = false;
+  let isMicInitializing = false;
 
   // Speech Recognition state
   let recognition = null;
   let isRecognitionActive = false;
   let shouldRestartRecognition = true;
 
+  function stopMediaStream(stream) {
+    if (stream) {
+      try {
+        stream.getTracks().forEach(track => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch (e) {
+        console.warn("Error stopping stream tracks:", e);
+      }
+    }
+  }
+
+  // --- 1. Camera Initialization ---
+  async function initCamera() {
+    if (isCameraInitializing) return;
+    isCameraInitializing = true;
+
+    const video = document.getElementById('liveVideo');
+    const onlineBadge = document.getElementById('cameraOnlineBadge');
+    const errOverlay = document.getElementById('cameraErrorOverlay');
+
+    if (onlineBadge) {
+      onlineBadge.className = "webcam-badge text-info";
+      onlineBadge.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i> Initializing Camera...';
+    }
+    if (errOverlay) errOverlay.classList.add('d-none');
+
+    // Clean up any existing video stream
+    if (webcamStream) {
+      stopMediaStream(webcamStream);
+      webcamStream = null;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      isCameraInitializing = false;
+      showCameraError("Camera Unsupported", "Camera access (MediaDevices API) is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
+      return;
+    }
+
+    try {
+      webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        audio: false
+      });
+
+      video.srcObject = webcamStream;
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.setAttribute('autoplay', '');
+      await video.play().catch(e => console.warn("Video playback note:", e));
+
+      if (onlineBadge) {
+        onlineBadge.className = "webcam-badge text-success";
+        onlineBadge.innerHTML = '<i class="fa-solid fa-video text-success me-1"></i> Camera Active';
+      }
+      if (errOverlay) errOverlay.classList.add('d-none');
+      hideGeneralAlert();
+
+      // Start periodic proctoring frame monitoring if not already active
+      if (!monitorInterval) {
+        monitorInterval = setInterval(captureAndSendFrame, 500);
+      }
+    } catch (err) {
+      console.error("Camera access error:", err);
+      let title = "Camera Error";
+      let message = "Unable to open camera: " + (err.message || "Unknown error");
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        title = "Camera Permission Denied";
+        message = "Camera access was denied. Please allow camera access in your browser settings (click the lock/camera icon in the address bar) and click Retry Camera.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        title = "Camera Not Found";
+        message = "No camera device detected. Please connect a webcam and click Retry Camera.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        title = "Camera Already in Use";
+        message = "Your camera is in use by another application. Please close other camera programs and click Retry Camera.";
+      }
+
+      showCameraError(title, message);
+    } finally {
+      isCameraInitializing = false;
+    }
+  }
+
+  function showCameraError(title, message) {
+    const onlineBadge = document.getElementById('cameraOnlineBadge');
+    const errOverlay = document.getElementById('cameraErrorOverlay');
+    const errTitle = document.getElementById('cameraErrorTitle');
+    const errMsg = document.getElementById('cameraErrorMessage');
+
+    if (onlineBadge) {
+      onlineBadge.className = "webcam-badge text-danger";
+      onlineBadge.innerHTML = '<i class="fa-solid fa-video-slash text-danger me-1"></i> Camera Disconnected';
+    }
+    if (errTitle) errTitle.innerText = title;
+    if (errMsg) errMsg.innerText = message;
+    if (errOverlay) errOverlay.classList.remove('d-none');
+    showGeneralAlert(message, "danger");
+  }
+
+  function retryCamera() {
+    initCamera();
+  }
+
+  // --- 2. Microphone Initialization ---
+  async function initMicrophone() {
+    if (isMicInitializing) return;
+    isMicInitializing = true;
+
+    setMicStatus("Initializing...", "text-info", null, false);
+
+    // Clean up previous mic stream if any
+    if (micStream) {
+      stopMediaStream(micStream);
+      micStream = null;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      isMicInitializing = false;
+      setMicStatus("Microphone Error", "text-danger", "MediaDevices API is not supported in this browser.", true);
+      return;
+    }
+
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      setMicStatus("Microphone Ready", "text-success", null, false);
+
+      // Stream successfully initialized -> start speech recognition
+      initSpeechRecognition();
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      let statusText = "Microphone Error";
+      let errorDesc = "Microphone access error: " + (err.message || "Unknown error");
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        statusText = "Microphone Permission Denied";
+        errorDesc = "Microphone permission was denied. Please allow microphone permissions in your browser settings (click lock icon in address bar) and click Retry.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        statusText = "Microphone Not Found";
+        errorDesc = "No microphone device detected on your system. Please connect a microphone and click Retry.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        statusText = "Microphone Error";
+        errorDesc = "Microphone is in use by another application. Please close other audio programs and click Retry.";
+      }
+
+      setMicStatus(statusText, "text-warning", errorDesc, true);
+    } finally {
+      isMicInitializing = false;
+    }
+  }
+
+  function setMicStatus(statusLabel, colorClass, errorDetail, showRetry) {
+    const statusInd = document.getElementById('speechStatusIndicator');
+    const retryBtn = document.getElementById('retryMicBtn');
+
+    if (statusInd) {
+      statusInd.className = `small ${colorClass}`;
+      let icon = '<i class="fa-solid fa-microphone me-1"></i>';
+      if (statusLabel === "Initializing...") {
+        icon = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i>';
+      } else if (statusLabel.includes("Denied")) {
+        icon = '<i class="fa-solid fa-microphone-slash me-1"></i>';
+      } else if (statusLabel.includes("Not Found")) {
+        icon = '<i class="fa-solid fa-triangle-exclamation me-1"></i>';
+      } else if (statusLabel.includes("Error")) {
+        icon = '<i class="fa-solid fa-circle-exclamation me-1"></i>';
+      }
+      statusInd.innerHTML = `${icon} ${statusLabel}`;
+    }
+
+    if (retryBtn) {
+      if (showRetry) {
+        retryBtn.classList.remove('d-none');
+      } else {
+        retryBtn.classList.add('d-none');
+      }
+    }
+
+    if (errorDetail) {
+      showGeneralAlert(errorDetail, "warning");
+    }
+  }
+
+  function retryMicrophone() {
+    initMicrophone();
+  }
+
+  // --- 3. Speech Recognition Engine ---
   function initSpeechRecognition() {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     const statusInd = document.getElementById('speechStatusIndicator');
 
     if (!SpeechRec) {
+      console.warn("Speech API not supported in this browser.");
       if (statusInd) {
-        statusInd.className = "small text-secondary";
-        statusInd.innerHTML = '<i class="fa-solid fa-circle-info me-1"></i> Speech API not supported in this browser; please type responses below.';
+        statusInd.className = "small text-info";
+        statusInd.innerHTML = '<i class="fa-solid fa-microphone me-1"></i> Microphone Ready (Type answer directly)';
       }
       return;
+    }
+
+    if (recognition) {
+      try { recognition.abort(); } catch(e){}
+      recognition = null;
     }
 
     try {
@@ -311,33 +525,23 @@
 
       recognition.onstart = () => {
         isRecognitionActive = true;
-        if (statusInd) {
-          statusInd.className = "small text-success";
-          statusInd.innerHTML = '<i class="fa-solid fa-microphone me-1"></i> Microphone Active (Listening...)';
-        }
+        setMicStatus("Microphone Ready", "text-success", null, false);
       };
 
       recognition.onerror = (event) => {
-        console.warn("Speech recognition error:", event.error);
+        console.warn("Speech recognition notice:", event.error);
         if (event.error === 'not-allowed') {
-          if (statusInd) {
-            statusInd.className = "small text-warning";
-            statusInd.innerHTML = '<i class="fa-solid fa-microphone-slash me-1"></i> Microphone permission required';
-          }
-        } else if (event.error === 'no-speech') {
-          // Normal silence, keep listening
-        } else {
-          if (statusInd) {
-            statusInd.className = "small text-muted";
-            statusInd.innerHTML = `<i class="fa-solid fa-microphone me-1"></i> Status: ${event.error}`;
-          }
+          setMicStatus("Microphone Permission Denied", "text-danger", "Speech recognition denied microphone access.", true);
+        } else if (event.error === 'no-speech' || event.error === 'network') {
+          // Normal silence or network glitch, keep microphone ready
+          setMicStatus("Microphone Ready", "text-success", null, false);
         }
       };
 
       recognition.onend = () => {
         isRecognitionActive = false;
         // Keep listening continuously while the session is active
-        if (shouldRestartRecognition && webcamStream && webcamStream.active) {
+        if (shouldRestartRecognition && micStream && micStream.active) {
           try {
             recognition.start();
           } catch (e) {
@@ -370,11 +574,7 @@
 
       recognition.start();
     } catch (err) {
-      console.warn("Speech recognition start error:", err);
-      if (statusInd) {
-        statusInd.className = "small text-secondary";
-        statusInd.innerHTML = '<i class="fa-solid fa-circle-info me-1"></i> Speech service unavailable; type answer directly.';
-      }
+      console.warn("Speech recognition start notice:", err);
     }
   }
 
@@ -430,48 +630,12 @@
     renderCurrentSpeechUI();
   }
 
-  async function initWebcam() {
-    const video = document.getElementById('liveVideo');
-    const onlineBadge = document.getElementById('cameraOnlineBadge');
-    try {
-      // Request video with microphone audio if available
-      try {
-        webcamStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-          audio: true
-        });
-      } catch (audioErr) {
-        // Fallback to video only if microphone is unavailable or denied
-        console.warn("Audio getUserMedia failed, falling back to video only:", audioErr);
-        webcamStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-          audio: false
-        });
-      }
-
-      video.srcObject = webcamStream;
-      onlineBadge.innerHTML = '<i class="fa-solid fa-video text-success me-1"></i> Camera Active';
-      onlineBadge.className = "webcam-badge text-success";
-
-      // Start periodic frame monitoring (every 500ms)
-      monitorInterval = setInterval(captureAndSendFrame, 500);
-
-      // Initialize live speech transcription
-      initSpeechRecognition();
-    } catch (err) {
-      console.error("Webcam init error:", err);
-      onlineBadge.innerHTML = '<i class="fa-solid fa-video-slash text-danger me-1"></i> Camera Disconnected';
-      onlineBadge.className = "webcam-badge text-danger";
-      showGeneralAlert("Camera error: " + err.message + ". Please reconnect webcam immediately.", "danger");
-    }
-  }
-      monitorInterval = setInterval(captureAndSendFrame, 500);
-    } catch (err) {
-      console.error("Webcam init error:", err);
-      onlineBadge.innerHTML = '<i class="fa-solid fa-video-slash text-danger me-1"></i> Camera Disconnected';
-      onlineBadge.className = "webcam-badge text-danger";
-      showGeneralAlert("Camera error: " + err.message + ". Please reconnect webcam immediately.", "danger");
-    }
+  // --- 4. Main Device Initializer ---
+  async function initDevices() {
+    await Promise.allSettled([
+      initCamera(),
+      initMicrophone()
+    ]);
   }
 
   async function captureAndSendFrame() {
@@ -516,7 +680,14 @@
     // Check if session was terminated by backend
     if (data.is_terminated || data.status === 'terminated') {
       clearInterval(monitorInterval);
-      if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+      shouldRestartRecognition = false;
+      if (recognition) {
+        try { recognition.abort(); } catch(e){}
+      }
+      stopMediaStream(webcamStream);
+      stopMediaStream(micStream);
+      webcamStream = null;
+      micStream = null;
       window.location.href = data.redirect_url || TERMINATED_URL;
       return;
     }
@@ -703,9 +874,13 @@
       if (res.success) {
         shouldRestartRecognition = false;
         if (recognition) {
-          try { recognition.stop(); } catch(e){}
+          try { recognition.abort(); } catch(e){}
         }
-        if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+        stopMediaStream(webcamStream);
+        stopMediaStream(micStream);
+        webcamStream = null;
+        micStream = null;
+        if (monitorInterval) clearInterval(monitorInterval);
         window.location.href = res.redirect_url;
       } else {
         alert(res.message);
@@ -715,13 +890,16 @@
     }
   }
 
-  window.addEventListener('DOMContentLoaded', initWebcam);
+  window.addEventListener('DOMContentLoaded', initDevices);
   window.addEventListener('beforeunload', () => {
     shouldRestartRecognition = false;
     if (recognition) {
-      try { recognition.stop(); } catch(e){}
+      try { recognition.abort(); } catch(e){}
     }
-    if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+    stopMediaStream(webcamStream);
+    stopMediaStream(micStream);
+    webcamStream = null;
+    micStream = null;
     if (monitorInterval) clearInterval(monitorInterval);
   });
 </script>

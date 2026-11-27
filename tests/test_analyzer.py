@@ -532,5 +532,39 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertIn(expected_err, reg_html)
         self.assertIn("@gmail\\.com", reg_html)
 
+    def test_22_camera_and_microphone_initialization_elements(self):
+        """Scenario 14: Verify camera preview, microphone initialization, statuses, and retry buttons."""
+        with open(os.path.join(BASE_DIR, 'templates', 'interview.html'), 'r', encoding='utf-8') as f:
+            html = f.read()
+
+        # 1. Camera verification
+        self.assertIn('id="liveVideo"', html)
+        self.assertIn('autoplay', html)
+        self.assertIn('playsinline', html)
+        self.assertIn('muted', html)
+        self.assertIn('id="cameraOnlineBadge"', html)
+        self.assertIn('id="cameraErrorOverlay"', html)
+        self.assertIn('retryCamera()', html)
+        self.assertIn('function initCamera()', html)
+
+        # 2. Microphone verification
+        self.assertIn('id="speechStatusIndicator"', html)
+        self.assertIn('id="retryMicBtn"', html)
+        self.assertIn('retryMicrophone()', html)
+        self.assertIn('function initMicrophone()', html)
+
+        # 3. Required microphone statuses
+        self.assertIn('Initializing...', html)
+        self.assertIn('Microphone Ready', html)
+        self.assertIn('Microphone Permission Denied', html)
+        self.assertIn('Microphone Not Found', html)
+        self.assertIn('Microphone Error', html)
+
+        # 4. Stream cleanup and lifecycle management
+        self.assertIn('function stopMediaStream(stream)', html)
+        self.assertIn('stopMediaStream(webcamStream)', html)
+        self.assertIn('stopMediaStream(micStream)', html)
+        self.assertIn('initDevices', html)
+
 if __name__ == '__main__':
     unittest.main()
