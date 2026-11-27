@@ -565,6 +565,27 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertIn('stopMediaStream(webcamStream)', html)
         self.assertIn('stopMediaStream(micStream)', html)
         self.assertIn('initDevices', html)
+        self.assertIn("document.readyState === 'loading'", html)
+
+        # 5. Diagnostic console logs
+        self.assertIn('Camera request started.', html)
+        self.assertIn('Camera permission granted.', html)
+        self.assertIn('Camera track detected.', html)
+        self.assertIn('Video stream attached.', html)
+        self.assertIn('Video playback started.', html)
+        self.assertIn('Microphone request started.', html)
+        self.assertIn('Microphone permission granted.', html)
+        self.assertIn('Audio track detected.', html)
+        self.assertIn('Speech recognition initialized.', html)
+        self.assertIn('Initialization error:', html)
+
+        # 6. Specific Media Device Error Types
+        self.assertIn('NotAllowedError', html)
+        self.assertIn('NotFoundError', html)
+        self.assertIn('NotReadableError', html)
+        self.assertIn('AbortError', html)
+        self.assertIn('OverconstrainedError', html)
+        self.assertIn('SecurityError', html)
 
 if __name__ == '__main__':
     unittest.main()

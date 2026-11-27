@@ -334,11 +334,24 @@
     const video = document.getElementById('regVideo');
     const badge = document.getElementById('cameraStatusBadge');
     try {
-      webcamStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: false
-      });
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false
+        });
+      } catch (conErr) {
+        if (conErr.name === 'OverconstrainedError') {
+          console.warn("Retrying camera with generic constraints { video: true } due to OverconstrainedError.");
+          webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } else {
+          throw conErr;
+        }
+      }
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.setAttribute('autoplay', '');
       video.srcObject = webcamStream;
+      await video.play().catch(e => console.warn("Video playback note:", e));
       badge.className = "badge bg-success";
       badge.innerHTML = '<i class="fa-solid fa-video me-1"></i> Camera Active';
     } catch (err) {
@@ -468,7 +481,11 @@
     }
   }
 
-  window.addEventListener('DOMContentLoaded', startWebcam);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startWebcam);
+  } else {
+    startWebcam();
+  }
   window.addEventListener('beforeunload', () => {
     if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
   });

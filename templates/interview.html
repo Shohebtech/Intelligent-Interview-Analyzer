@@ -322,6 +322,61 @@
     }
   }
 
+  // --- Error Formatting for Media Devices ---
+  function formatMediaError(deviceType, err) {
+    const isCam = deviceType === 'camera';
+    const name = err ? err.name : '';
+    let title = isCam ? "Camera Error" : "Microphone Error";
+    let message = isCam 
+      ? ("Unable to open camera: " + ((err && err.message) || "Unknown error"))
+      : ("Unable to access microphone: " + ((err && err.message) || "Unknown error"));
+
+    switch (name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        title = isCam ? "Camera Permission Denied" : "Microphone Permission Denied";
+        message = isCam 
+          ? "Camera permission was denied. Please allow camera access in your browser settings (click the lock or camera icon in the address bar) and click Retry Camera."
+          : "Microphone permission was denied. Please allow microphone access in your browser settings (click the lock or microphone icon in the address bar) and click Retry.";
+        break;
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        title = isCam ? "Camera Not Found" : "Microphone Not Found";
+        message = isCam 
+          ? "No camera device detected on your system. Please connect a webcam and click Retry Camera."
+          : "No microphone device detected on your system. Please connect a microphone and click Retry.";
+        break;
+      case 'NotReadableError':
+      case 'TrackStartError':
+        title = isCam ? "Camera Already in Use" : "Microphone Already in Use";
+        message = isCam 
+          ? "Your camera is in use by another application or tab. Please close other camera programs and click Retry Camera."
+          : "Your microphone is in use by another application or tab. Please close other audio programs and click Retry.";
+        break;
+      case 'AbortError':
+        title = isCam ? "Camera Initialization Aborted" : "Microphone Initialization Aborted";
+        message = isCam 
+          ? "Camera initialization was aborted. Please click Retry Camera."
+          : "Microphone initialization was aborted. Please click Retry.";
+        break;
+      case 'OverconstrainedError':
+        title = isCam ? "Camera Constraints Unmet" : "Microphone Constraints Unmet";
+        message = isCam 
+          ? "Camera does not support requested resolution or facing mode. Please click Retry Camera."
+          : "Microphone does not support requested audio settings. Please click Retry.";
+        break;
+      case 'SecurityError':
+        title = isCam ? "Camera Security Error" : "Microphone Security Error";
+        message = isCam 
+          ? "Camera access is blocked by browser security policy. Please run on localhost or HTTPS."
+          : "Microphone access is blocked by browser security policy. Please run on localhost or HTTPS.";
+        break;
+      default:
+        break;
+    }
+    return { title, message };
+  }
+
   // --- 1. Camera Initialization ---
   async function initCamera() {
     if (isCameraInitializing) return;
@@ -345,21 +400,53 @@
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       isCameraInitializing = false;
+      const err = new Error("MediaDevices API is not supported in this browser.");
+      err.name = "TypeError";
+      console.error("Initialization error: " + err.name + " - " + err.message);
       showCameraError("Camera Unsupported", "Camera access (MediaDevices API) is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
       return;
     }
 
-    try {
-      webcamStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: false
-      });
+    console.log("Camera request started.");
 
-      video.srcObject = webcamStream;
+    try {
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false
+        });
+      } catch (conErr) {
+        if (conErr.name === 'OverconstrainedError') {
+          console.warn("Retrying camera with generic constraints { video: true } due to OverconstrainedError.");
+          webcamStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        } else {
+          throw conErr;
+        }
+      }
+
+      console.log("Camera permission granted.");
+
+      const videoTracks = webcamStream ? webcamStream.getVideoTracks() : [];
+      if (!videoTracks || videoTracks.length === 0 || !videoTracks[0].enabled) {
+        throw new Error("No active video track detected in media stream.");
+      }
+      console.log("Camera track detected.");
+
       video.muted = true;
       video.setAttribute('playsinline', '');
       video.setAttribute('autoplay', '');
-      await video.play().catch(e => console.warn("Video playback note:", e));
+      video.srcObject = webcamStream;
+      console.log("Video stream attached.");
+
+      try {
+        await video.play();
+      } catch (playErr) {
+        console.warn("Video playback note:", playErr);
+      }
+      console.log("Video playback started.");
 
       if (onlineBadge) {
         onlineBadge.className = "webcam-badge text-success";
@@ -373,22 +460,9 @@
         monitorInterval = setInterval(captureAndSendFrame, 500);
       }
     } catch (err) {
-      console.error("Camera access error:", err);
-      let title = "Camera Error";
-      let message = "Unable to open camera: " + (err.message || "Unknown error");
-
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        title = "Camera Permission Denied";
-        message = "Camera access was denied. Please allow camera access in your browser settings (click the lock/camera icon in the address bar) and click Retry Camera.";
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        title = "Camera Not Found";
-        message = "No camera device detected. Please connect a webcam and click Retry Camera.";
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        title = "Camera Already in Use";
-        message = "Your camera is in use by another application. Please close other camera programs and click Retry Camera.";
-      }
-
-      showCameraError(title, message);
+      console.error("Initialization error: " + (err.name || "Error") + " - " + (err.message || "Unknown error"));
+      const errInfo = formatMediaError('camera', err);
+      showCameraError(errInfo.title, errInfo.message);
     } finally {
       isCameraInitializing = false;
     }
@@ -429,34 +503,33 @@
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       isMicInitializing = false;
+      const err = new Error("MediaDevices API is not supported in this browser.");
+      err.name = "TypeError";
+      console.error("Initialization error: " + err.name + " - " + err.message);
       setMicStatus("Microphone Error", "text-danger", "MediaDevices API is not supported in this browser.", true);
       return;
     }
 
+    console.log("Microphone request started.");
+
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("Microphone permission granted.");
+
+      const audioTracks = micStream ? micStream.getAudioTracks() : [];
+      if (!audioTracks || audioTracks.length === 0 || !audioTracks[0].enabled) {
+        throw new Error("No active audio track detected in microphone stream.");
+      }
+      console.log("Audio track detected.");
 
       setMicStatus("Microphone Ready", "text-success", null, false);
 
       // Stream successfully initialized -> start speech recognition
       initSpeechRecognition();
     } catch (err) {
-      console.error("Microphone access error:", err);
-      let statusText = "Microphone Error";
-      let errorDesc = "Microphone access error: " + (err.message || "Unknown error");
-
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        statusText = "Microphone Permission Denied";
-        errorDesc = "Microphone permission was denied. Please allow microphone permissions in your browser settings (click lock icon in address bar) and click Retry.";
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        statusText = "Microphone Not Found";
-        errorDesc = "No microphone device detected on your system. Please connect a microphone and click Retry.";
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        statusText = "Microphone Error";
-        errorDesc = "Microphone is in use by another application. Please close other audio programs and click Retry.";
-      }
-
-      setMicStatus(statusText, "text-warning", errorDesc, true);
+      console.error("Initialization error: " + (err.name || "Error") + " - " + (err.message || "Unknown error"));
+      const errInfo = formatMediaError('microphone', err);
+      setMicStatus(errInfo.title, "text-warning", errInfo.message, true);
     } finally {
       isMicInitializing = false;
     }
@@ -475,7 +548,7 @@
         icon = '<i class="fa-solid fa-microphone-slash me-1"></i>';
       } else if (statusLabel.includes("Not Found")) {
         icon = '<i class="fa-solid fa-triangle-exclamation me-1"></i>';
-      } else if (statusLabel.includes("Error")) {
+      } else if (statusLabel.includes("Error") || statusLabel.includes("Aborted") || statusLabel.includes("Security") || statusLabel.includes("Constraints")) {
         icon = '<i class="fa-solid fa-circle-exclamation me-1"></i>';
       }
       statusInd.innerHTML = `${icon} ${statusLabel}`;
@@ -509,6 +582,7 @@
         statusInd.className = "small text-info";
         statusInd.innerHTML = '<i class="fa-solid fa-microphone me-1"></i> Microphone Ready (Type answer directly)';
       }
+      console.log("Speech recognition initialized.");
       return;
     }
 
@@ -573,8 +647,10 @@
       };
 
       recognition.start();
+      console.log("Speech recognition initialized.");
     } catch (err) {
       console.warn("Speech recognition start notice:", err);
+      console.log("Speech recognition initialized.");
     }
   }
 
@@ -631,11 +707,9 @@
   }
 
   // --- 4. Main Device Initializer ---
-  async function initDevices() {
-    await Promise.allSettled([
-      initCamera(),
-      initMicrophone()
-    ]);
+  function initDevices() {
+    initCamera();
+    initMicrophone();
   }
 
   async function captureAndSendFrame() {
@@ -890,7 +964,11 @@
     }
   }
 
-  window.addEventListener('DOMContentLoaded', initDevices);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDevices);
+  } else {
+    initDevices();
+  }
   window.addEventListener('beforeunload', () => {
     shouldRestartRecognition = false;
     if (recognition) {
