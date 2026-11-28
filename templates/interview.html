@@ -285,6 +285,12 @@
   const answeredQids = new Set({{ answered_qids|tojson }});
   let currentQIndex = 0;
   const questionSpeechData = {};
+  let activeSpeechQuestionId = (questionsData && questionsData.length > 0) ? questionsData[0].id : null;
+  const questionTextData = {}; // Tracks { text: string, isManuallyEdited: boolean, lastSyncedSpeech: string }
+  let isInterviewFinished = false;
+  let recognitionRestartTimer = null;
+  let consecutiveRecognitionFailures = 0;
+  const MAX_RECOGNITION_FAILURES = 5;
 
   // Session duration timer
   const startTime = Date.now();
@@ -501,6 +507,16 @@
       micStream = null;
     }
 
+    if (window.isSecureContext === false) {
+      isMicInitializing = false;
+      const err = new Error("Microphone access is blocked in an insecure context. Please run on localhost or HTTPS.");
+      err.name = "SecurityError";
+      console.error("Initialization error: " + err.name + " - " + err.message);
+      const errInfo = formatMediaError('microphone', err);
+      setMicStatus(errInfo.title, "text-warning", errInfo.message, true);
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       isMicInitializing = false;
       const err = new Error("MediaDevices API is not supported in this browser.");
@@ -522,10 +538,15 @@
       }
       console.log("Audio track detected.");
 
-      setMicStatus("Microphone Ready", "text-success", null, false);
-
-      // Stream successfully initialized -> start speech recognition
-      initSpeechRecognition();
+      // Check browser speech recognition capability
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRec) {
+        setMicStatus("Microphone Ready (Type answer directly)", "text-info", "Web Speech API is not supported in this browser. Please use Google Chrome on desktop for live speech transcription.", false);
+        console.log("Speech recognition initialized.");
+      } else {
+        setMicStatus("Microphone Ready", "text-success", null, false);
+        initSpeechRecognition();
+      }
     } catch (err) {
       console.error("Initialization error: " + (err.name || "Error") + " - " + (err.message || "Unknown error"));
       const errInfo = formatMediaError('microphone', err);
@@ -550,6 +571,8 @@
         icon = '<i class="fa-solid fa-triangle-exclamation me-1"></i>';
       } else if (statusLabel.includes("Error") || statusLabel.includes("Aborted") || statusLabel.includes("Security") || statusLabel.includes("Constraints")) {
         icon = '<i class="fa-solid fa-circle-exclamation me-1"></i>';
+      } else if (statusLabel === "Listening...") {
+        icon = '<i class="fa-solid fa-microphone-lines text-danger me-1"></i>';
       }
       statusInd.innerHTML = `${icon} ${statusLabel}`;
     }
@@ -567,8 +590,83 @@
     }
   }
 
-  function retryMicrophone() {
-    initMicrophone();
+  async function retryMicrophone() {
+    consecutiveRecognitionFailures = 0;
+    isMicInitializing = false;
+    shouldRestartRecognition = true;
+
+    cleanupSpeechRecognitionInstance();
+
+    if (micStream) {
+      stopMediaStream(micStream);
+      micStream = null;
+    }
+
+    setMicStatus("Initializing...", "text-info", null, false);
+    await initMicrophone();
+  }
+
+  function cleanupSpeechRecognitionInstance() {
+    if (recognitionRestartTimer) {
+      clearTimeout(recognitionRestartTimer);
+      recognitionRestartTimer = null;
+    }
+    if (recognition) {
+      recognition.onstart = null;
+      recognition.onaudiostart = null;
+      recognition.onspeechstart = null;
+      recognition.onspeechend = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.onresult = null;
+      try {
+        recognition.abort();
+      } catch (e) {}
+      recognition = null;
+    }
+    isRecognitionActive = false;
+  }
+
+  function scheduleRecognitionRestart(delay = 300) {
+    if (!shouldRestartRecognition || isInterviewFinished) return;
+    if (recognitionRestartTimer) {
+      clearTimeout(recognitionRestartTimer);
+    }
+
+    if (consecutiveRecognitionFailures >= MAX_RECOGNITION_FAILURES) {
+      console.warn("Speech recognition reached maximum consecutive retry attempts. Pausing auto-restart.");
+      setMicStatus("Microphone Error", "text-warning", "Speech recognition paused after multiple connection attempts. Click Retry Microphone to resume.", true);
+      return;
+    }
+
+    recognitionRestartTimer = setTimeout(() => {
+      restartRecognitionSafely();
+    }, delay);
+  }
+
+  function restartRecognitionSafely() {
+    if (!shouldRestartRecognition || isInterviewFinished) return;
+    if (isRecognitionActive) return;
+
+    if (!recognition) {
+      initSpeechRecognition();
+      return;
+    }
+
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("Speech recognition restart notice:", e);
+      if (e.name === 'InvalidStateError') {
+        recognitionRestartTimer = setTimeout(() => {
+          if (!isRecognitionActive && shouldRestartRecognition && !isInterviewFinished) {
+            initSpeechRecognition();
+          }
+        }, 400);
+      } else {
+        initSpeechRecognition();
+      }
+    }
   }
 
   // --- 3. Speech Recognition Engine ---
@@ -586,64 +684,71 @@
       return;
     }
 
-    if (recognition) {
-      try { recognition.abort(); } catch(e){}
-      recognition = null;
-    }
+    cleanupSpeechRecognitionInstance();
 
     try {
       recognition = new SpeechRec();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         isRecognitionActive = true;
+        consecutiveRecognitionFailures = 0;
         setMicStatus("Microphone Ready", "text-success", null, false);
+      };
+
+      recognition.onspeechstart = () => {
+        if (isRecognitionActive) {
+          setMicStatus("Listening...", "text-success", null, false);
+        }
+      };
+
+      recognition.onspeechend = () => {
+        if (isRecognitionActive) {
+          setMicStatus("Microphone Ready", "text-success", null, false);
+        }
       };
 
       recognition.onerror = (event) => {
         console.warn("Speech recognition notice:", event.error);
-        if (event.error === 'not-allowed') {
-          setMicStatus("Microphone Permission Denied", "text-danger", "Speech recognition denied microphone access.", true);
-        } else if (event.error === 'no-speech' || event.error === 'network') {
-          // Normal silence or network glitch, keep microphone ready
+        const errType = event.error;
+
+        if (errType === 'no-speech') {
           setMicStatus("Microphone Ready", "text-success", null, false);
+        } else if (errType === 'not-allowed') {
+          consecutiveRecognitionFailures = MAX_RECOGNITION_FAILURES;
+          setMicStatus("Microphone Permission Denied", "text-danger", "Microphone access was denied in browser speech recognition. Please allow microphone permissions in the browser address bar.", true);
+        } else if (errType === 'service-not-allowed') {
+          consecutiveRecognitionFailures = MAX_RECOGNITION_FAILURES;
+          setMicStatus("Microphone Error", "text-danger", "Speech recognition service is not permitted by browser security policy.", true);
+        } else if (errType === 'audio-capture') {
+          consecutiveRecognitionFailures++;
+          setMicStatus("Microphone Not Found", "text-warning", "Audio capture failed. Ensure your microphone is connected and not in use exclusively by another application.", true);
+        } else if (errType === 'network') {
+          consecutiveRecognitionFailures++;
+          if (consecutiveRecognitionFailures >= MAX_RECOGNITION_FAILURES) {
+            setMicStatus("Microphone Error", "text-warning", "Speech recognition network connection failed. Check your internet connectivity.", true);
+          } else {
+            setMicStatus("Microphone Ready", "text-info", null, false);
+          }
+        } else if (errType === 'aborted') {
+          // Intentional stop or switch, ignore
+        } else {
+          setMicStatus("Microphone Error", "text-warning", "Speech recognition notice: " + errType, true);
         }
       };
 
       recognition.onend = () => {
         isRecognitionActive = false;
-        // Keep listening continuously while the session is active
-        if (shouldRestartRecognition && micStream && micStream.active) {
-          try {
-            recognition.start();
-          } catch (e) {
-            // Already started or busy
-          }
+        if (shouldRestartRecognition && !isInterviewFinished) {
+          scheduleRecognitionRestart(300);
         }
       };
 
       recognition.onresult = (event) => {
-        if (!questionsData || questionsData.length === 0) return;
-        const q = questionsData[currentQIndex];
-        if (!q) return;
-
-        if (!questionSpeechData[q.id]) {
-          questionSpeechData[q.id] = { final: '', interim: '' };
-        }
-
-        let interimStr = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            questionSpeechData[q.id].final += (questionSpeechData[q.id].final ? ' ' : '') + transcript.trim();
-          } else {
-            interimStr += transcript;
-          }
-        }
-        questionSpeechData[q.id].interim = interimStr;
-        renderCurrentSpeechUI();
+        handleSpeechResult(event);
       };
 
       recognition.start();
@@ -651,6 +756,37 @@
     } catch (err) {
       console.warn("Speech recognition start notice:", err);
       console.log("Speech recognition initialized.");
+      scheduleRecognitionRestart(600);
+    }
+  }
+
+  function handleSpeechResult(event) {
+    if (!questionsData || questionsData.length === 0) return;
+    const q = questionsData[currentQIndex];
+    if (!q) return;
+
+    const targetQId = activeSpeechQuestionId || q.id;
+
+    if (!questionSpeechData[targetQId]) {
+      questionSpeechData[targetQId] = { final: '', interim: '' };
+    }
+
+    let interimStr = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        const trimmed = transcript.trim();
+        if (trimmed) {
+          questionSpeechData[targetQId].final += (questionSpeechData[targetQId].final ? ' ' : '') + trimmed;
+        }
+      } else {
+        interimStr += transcript;
+      }
+    }
+    questionSpeechData[targetQId].interim = interimStr;
+
+    if (String(targetQId) === String(q.id)) {
+      renderCurrentSpeechUI();
     }
   }
 
@@ -664,7 +800,6 @@
     const finalEl = document.getElementById('speechFinalText');
     const interimEl = document.getElementById('speechInterimText');
     const container = document.getElementById('liveSpeechContainer');
-    const answerInput = document.getElementById('answerInput');
 
     if (finalEl) finalEl.textContent = data.final;
     if (interimEl) interimEl.textContent = data.interim ? (' ' + data.interim) : '';
@@ -678,19 +813,53 @@
       }
     }
 
-    // Keep answer input synchronized with speech transcript
-    if (answerInput && hasContent) {
-      const fullText = (data.final + (data.interim ? ' ' + data.interim : '')).trim();
-      if (!answerInput.value || answerInput.dataset.autoFilled === "true" || answerInput.dataset.forQ === String(q.id)) {
-        answerInput.value = fullText;
-        answerInput.dataset.autoFilled = "true";
-        answerInput.dataset.forQ = String(q.id);
-      }
-    }
+    syncSpeechToAnswerTextarea(q.id, data);
 
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
+  }
+
+  function syncSpeechToAnswerTextarea(qId, data) {
+    const answerInput = document.getElementById('answerInput');
+    if (!answerInput) return;
+
+    if (!questionTextData[qId]) {
+      questionTextData[qId] = {
+        text: '',
+        isManuallyEdited: false,
+        lastSyncedSpeech: ''
+      };
+    }
+
+    const state = questionTextData[qId];
+
+    // Never overwrite candidate's manual edits
+    if (state.isManuallyEdited) {
+      return;
+    }
+
+    const fullTranscript = (data.final + (data.interim ? ' ' + data.interim : '')).trim();
+    if (fullTranscript) {
+      answerInput.value = fullTranscript;
+      state.text = fullTranscript;
+      state.lastSyncedSpeech = fullTranscript;
+    }
+  }
+
+  function setupAnswerInputListeners() {
+    const answerInput = document.getElementById('answerInput');
+    if (!answerInput) return;
+
+    answerInput.addEventListener('input', () => {
+      const q = questionsData[currentQIndex];
+      if (!q) return;
+      if (!questionTextData[q.id]) {
+        questionTextData[q.id] = { text: '', isManuallyEdited: false, lastSyncedSpeech: '' };
+      }
+      questionTextData[q.id].isManuallyEdited = true;
+      questionTextData[q.id].text = answerInput.value;
+    });
   }
 
   function clearCurrentSpeech() {
@@ -699,15 +868,20 @@
     if (!q) return;
 
     questionSpeechData[q.id] = { final: '', interim: '' };
-    const answerInput = document.getElementById('answerInput');
-    if (answerInput && answerInput.dataset.forQ === String(q.id)) {
-      answerInput.value = '';
+
+    if (questionTextData[q.id] && !questionTextData[q.id].isManuallyEdited) {
+      questionTextData[q.id].text = '';
+      questionTextData[q.id].lastSyncedSpeech = '';
+      const answerInput = document.getElementById('answerInput');
+      if (answerInput) answerInput.value = '';
     }
+
     renderCurrentSpeechUI();
   }
 
   // --- 4. Main Device Initializer ---
   function initDevices() {
+    setupAnswerInputListeners();
     initCamera();
     initMicrophone();
   }
@@ -754,10 +928,9 @@
     // Check if session was terminated by backend
     if (data.is_terminated || data.status === 'terminated') {
       clearInterval(monitorInterval);
+      isInterviewFinished = true;
       shouldRestartRecognition = false;
-      if (recognition) {
-        try { recognition.abort(); } catch(e){}
-      }
+      cleanupSpeechRecognitionInstance();
       stopMediaStream(webcamStream);
       stopMediaStream(micStream);
       webcamStream = null;
@@ -853,24 +1026,48 @@
   }
 
   // Interview Questions Logic
+  function commitCurrentQuestionText(oldQId) {
+    const answerInput = document.getElementById('answerInput');
+    if (!answerInput || !oldQId) return;
+
+    if (!questionTextData[oldQId]) {
+      questionTextData[oldQId] = { text: '', isManuallyEdited: false, lastSyncedSpeech: '' };
+    }
+    questionTextData[oldQId].text = answerInput.value;
+
+    if (questionSpeechData[oldQId] && questionSpeechData[oldQId].interim) {
+      const pending = questionSpeechData[oldQId].interim.trim();
+      if (pending) {
+        questionSpeechData[oldQId].final += (questionSpeechData[oldQId].final ? ' ' : '') + pending;
+      }
+      questionSpeechData[oldQId].interim = '';
+    }
+  }
+
   function updateQuestionUI() {
     if (!questionsData || questionsData.length === 0) return;
     const q = questionsData[currentQIndex];
+    if (!q) return;
+
     document.getElementById('currentQNum').innerText = currentQIndex + 1;
     document.getElementById('questionCategory').innerText = q.category || 'General';
     document.getElementById('questionText').innerText = q.question_text;
 
-    // Render speech display for the active question
-    renderCurrentSpeechUI();
-
-    // Restore or sync answer textarea for current question
+    // Restore text for this question
     const answerInput = document.getElementById('answerInput');
-    const existingSpeech = (questionSpeechData[q.id]?.final || '');
-    if (answerInput.dataset.forQ !== String(q.id)) {
-      answerInput.value = existingSpeech;
-      answerInput.dataset.forQ = String(q.id);
-      answerInput.dataset.autoFilled = existingSpeech ? "true" : "false";
+    if (answerInput) {
+      if (!questionTextData[q.id]) {
+        const existingSpeech = questionSpeechData[q.id]?.final || '';
+        questionTextData[q.id] = {
+          text: existingSpeech,
+          isManuallyEdited: false,
+          lastSyncedSpeech: existingSpeech
+        };
+      }
+      answerInput.value = questionTextData[q.id].text || '';
     }
+
+    renderCurrentSpeechUI();
 
     // Update pagination buttons
     document.querySelectorAll('.q-nav-btn').forEach((btn, idx) => {
@@ -881,22 +1078,37 @@
   }
 
   function switchQuestion(idx) {
-    if (idx >= 0 && idx < questionsData.length) {
-      currentQIndex = idx;
-      updateQuestionUI();
+    if (idx < 0 || idx >= questionsData.length || idx === currentQIndex) return;
+
+    const oldQ = questionsData[currentQIndex];
+    if (oldQ) {
+      commitCurrentQuestionText(oldQ.id);
+    }
+
+    currentQIndex = idx;
+    const newQ = questionsData[currentQIndex];
+    activeSpeechQuestionId = newQ ? newQ.id : null;
+
+    updateQuestionUI();
+
+    // Abort recognition cleanly so audio buffers don't bleed between questions
+    if (isRecognitionActive && recognition) {
+      try {
+        recognition.abort();
+      } catch (e) {}
     }
   }
 
   function prevQuestion() {
     if (currentQIndex > 0) {
-      currentQIndex--;
-      updateQuestionUI();
+      switchQuestion(currentQIndex - 1);
     }
   }
 
   async function saveAndNext() {
     const q = questionsData[currentQIndex];
-    const answer = document.getElementById('answerInput').value.trim();
+    const answerInput = document.getElementById('answerInput');
+    const answer = answerInput ? answerInput.value.trim() : '';
     const statusDiv = document.getElementById('answerSaveStatus');
 
     if (!answer) {
@@ -925,8 +1137,7 @@
         statusDiv.innerHTML = '<span class="text-success"><i class="fa-solid fa-check me-1"></i> Answer recorded!</span>';
         answeredQids.add(q.id);
         if (currentQIndex < questionsData.length - 1) {
-          currentQIndex++;
-          updateQuestionUI();
+          switchQuestion(currentQIndex + 1);
         }
       } else {
         statusDiv.innerHTML = `<span class="text-danger">${res.message}</span>`;
@@ -946,10 +1157,9 @@
       });
       const res = await resp.json();
       if (res.success) {
+        isInterviewFinished = true;
         shouldRestartRecognition = false;
-        if (recognition) {
-          try { recognition.abort(); } catch(e){}
-        }
+        cleanupSpeechRecognitionInstance();
         stopMediaStream(webcamStream);
         stopMediaStream(micStream);
         webcamStream = null;
@@ -970,10 +1180,9 @@
     initDevices();
   }
   window.addEventListener('beforeunload', () => {
+    isInterviewFinished = true;
     shouldRestartRecognition = false;
-    if (recognition) {
-      try { recognition.abort(); } catch(e){}
-    }
+    cleanupSpeechRecognitionInstance();
     stopMediaStream(webcamStream);
     stopMediaStream(micStream);
     webcamStream = null;

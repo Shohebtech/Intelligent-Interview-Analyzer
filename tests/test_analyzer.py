@@ -587,5 +587,44 @@ class TestIntelligentInterviewAnalyzer(unittest.TestCase):
         self.assertIn('OverconstrainedError', html)
         self.assertIn('SecurityError', html)
 
+    def test_23_live_speech_recognition_and_sync(self):
+        """Scenario 15: Verify live speech recognition, question sync, manual edit protection, and restart safety."""
+        with open(os.path.join(BASE_DIR, 'templates', 'interview.html'), 'r', encoding='utf-8') as f:
+            html = f.read()
+
+        # 1. Live speech display elements
+        self.assertIn('id="liveSpeechContainer"', html)
+        self.assertIn('id="speechPlaceholder"', html)
+        self.assertIn('id="speechFinalText"', html)
+        self.assertIn('id="speechInterimText"', html)
+        self.assertIn('function renderCurrentSpeechUI()', html)
+
+        # 2. Question synchronization
+        self.assertIn('activeSpeechQuestionId', html)
+        self.assertIn('function commitCurrentQuestionText(oldQId)', html)
+        self.assertIn('function handleSpeechResult(event)', html)
+
+        # 3. Text answer synchronization and manual edit protection
+        self.assertIn('isManuallyEdited', html)
+        self.assertIn('function syncSpeechToAnswerTextarea(qId, data)', html)
+        self.assertIn('function setupAnswerInputListeners()', html)
+
+        # 4. Speech recognition restart safety & infinite loop prevention
+        self.assertIn('function scheduleRecognitionRestart(delay', html)
+        self.assertIn('function restartRecognitionSafely()', html)
+        self.assertIn('consecutiveRecognitionFailures', html)
+        self.assertIn('MAX_RECOGNITION_FAILURES', html)
+        self.assertIn('function cleanupSpeechRecognitionInstance()', html)
+
+        # 5. Speech Recognition specific error handling
+        self.assertIn("errType === 'no-speech'", html)
+        self.assertIn("errType === 'not-allowed'", html)
+        self.assertIn("errType === 'service-not-allowed'", html)
+        self.assertIn("errType === 'audio-capture'", html)
+        self.assertIn("errType === 'network'", html)
+
+        # 6. Secure context verification
+        self.assertIn('window.isSecureContext === false', html)
+
 if __name__ == '__main__':
     unittest.main()
